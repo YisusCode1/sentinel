@@ -1,0 +1,26 @@
+body {
+  margin: 0;
+  background: #080d18;
+  color: #ffffff;
+  font-family: Arial, sans-serif;
+}
+
+main {
+  max-width: 1000px;
+  margin: 100px auto;
+  padding: 30px;
+}
+
+h1 {
+  font-size: 48px;
+  letter-spacing: 8px;
+  color: #67e8f9;
+}
+
+section {
+  margin-top: 40px;
+  padding: 25px;
+  background: #111c30;
+  border: 1px solid #263b59;
+  border-radius: 12px;
+}
