@@ -1,420 +1,363 @@
 import { useEffect, useState } from "react";
-import { 
-  Shield, 
-  LayoutDashboard, 
-  Lock, 
-  Activity, 
-  AlertTriangle, 
-  FileText, 
-  Settings, 
-  Box, 
-  CheckCircle2, 
-  Key,
-  Menu,
-  X 
+import {
+  LayoutDashboard, Lock, Activity, AlertTriangle, FileText,
+  Settings, Box, CheckCircle2, Key, Menu, X, ArrowUpRight, ArrowDownRight, Minus,
 } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+import OperationsPage from "./features/operations/OperationsPage";
+import PoliciesPage from "./features/policies/PoliciesPage";
+import AlertsPage from "./features/alerts/AlertsPage";
+import ConfigPage from "./features/config/ConfigPage";
+import { API_BASE_URL, apiRequest } from "./lib/api";
+import type { OperationRecord, PolicyRecord } from "./features/operations/types";
+import sentinelLogo from "./assets/sentinel-logo.png";
 import "./App.css";
 
-interface Policy {
-  name: string;
-  max_amount: string;
-  allowed_tokens: string[];
-  allowed_recipients: string[];
-  allowed_operations: string[];
+type Tab = "dashboard" | "operaciones" | "alerts" | "policies" | "reportes" | "configuracion";
+const navigation: { id: Tab; label: string; icon: LucideIcon }[] = [
+  { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { id: "operaciones", label: "Operaciones", icon: Activity },
+  { id: "alerts", label: "Alertas", icon: AlertTriangle },
+  { id: "policies", label: "Políticas", icon: Lock },
+  { id: "reportes", label: "Reportes", icon: FileText },
+  { id: "configuracion", label: "Configuración", icon: Settings },
+];
+
+const demoMetrics = [
+  { title: "Operaciones Analizadas", value: "12,480", change: "+12%", tone: "primary", icon: Box, direction: "up" },
+  { title: "Operaciones Seguras", value: "11,920", change: "+15%", tone: "success", icon: CheckCircle2, direction: "up" },
+  { title: "Alertas Críticas", value: "12", change: "−8%", tone: "critical", icon: AlertTriangle, direction: "down" },
+  { title: "Políticas Activas", value: "5", change: "0%", tone: "neutral", icon: Key, direction: "flat" },
+] as const;
+
+const demoPolicies = [
+  "Bloqueo de transacciones sospechosas",
+  "Límites de monto por operación",
+  "Detección de anomalías con IA",
+  "Validación de contratos inteligentes",
+];
+
+function MetricCard({ title, value, change, tone, icon: Icon, direction }: (typeof demoMetrics)[number]) {
+  const TrendIcon = direction === "down" ? ArrowDownRight : direction === "up" ? ArrowUpRight : Minus;
+  return (
+    <article className="metric-card" aria-label={title}>
+      <div className="metric-heading">
+        <h3 className="metric-title">{title}</h3>
+        <Icon className={`metric-icon ${tone}`} size={19} strokeWidth={1.75} aria-hidden="true" />
+      </div>
+      <p className="metric-value numeric">{value}</p>
+      <div className="metric-comparison">
+        <span className={`metric-change ${direction === "flat" ? "neutral" : ""}`}>
+          <TrendIcon size={14} aria-hidden="true" /><span className="numeric">{change}</span>
+        </span>
+        <span>vs. período anterior</span>
+      </div>
+    </article>
+  );
+}
+
+function RecentAlerts() {
+  return (
+    <>
+      <div className="alert-item critical">
+        <div className="alert-row"><p><strong>Operación de alto riesgo detectada</strong></p><span className="badge-pill crit">Crítica</span></div>
+        <small>Hace <span className="numeric">2</span> min · Riesgo: <span className="numeric">92%</span></small>
+      </div>
+      <div className="alert-item warning">
+        <div className="alert-row"><p><strong>Patrón inusual en contratos</strong></p><span className="badge-pill warn">Advertencia</span></div>
+        <small>Hace <span className="numeric">5</span> min · Riesgo: <span className="numeric">68%</span></small>
+      </div>
+      <div className="alert-item info">
+        <div className="alert-row"><p><strong>Política actualizada</strong></p><span className="badge-pill inf">Info</span></div>
+        <small>Hace <span className="numeric">10</span> min · Nueva regla de seguridad</small>
+      </div>
+    </>
+  );
 }
 
 export default function App() {
-  const [backendStatus, setBackendStatus] = useState("Checking...");
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [backendStatus, setBackendStatus] = useState("checking");
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  // Fecha y hora dinámica automática al cargar la página
-  const [currentDate] = useState(() => {
-    const now = new Date();
-    const day = String(now.getDate()).padStart(2, '0');
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const year = now.getFullYear();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    return `${day}/${month}/${year} ${hours}:${minutes} UTC`;
-  });
+  // Synchronization between features
+  const [alertsCountState, setAlertsCountState] = useState<{
+    count: number | null;
+    loading: boolean;
+    error: boolean;
+  }>({ count: null, loading: true, error: false });
+  const [alertsRefreshSignal, setAlertsRefreshSignal] = useState(0);
+  const [policyRefreshSignal, setPolicyRefreshSignal] = useState(0);
+  const [preselectedPolicyId, setPreselectedPolicyId] = useState<string | null>(null);
 
-  const [policyForm, setPolicyForm] = useState<Policy>({
-    name: "Demo transfer policy",
-    max_amount: "100",
-    allowed_tokens: ["USDC"],
-    allowed_recipients: ["demo-recipient"],
-    allowed_operations: ["transfer"],
-  });
-
-  const [policyResponse, setPolicyResponse] = useState<string | null>(null);
+  const isOnline = backendStatus === "healthy";
+  const connectionLabel = isOnline ? "Backend conectado" : backendStatus === "checking" ? "Verificando conexión" : "Backend sin conexión";
+  const connectionClass = isOnline ? "online" : backendStatus === "checking" ? "" : "offline";
 
   useEffect(() => {
-    fetch("http://localhost:8001/api/v1/health")
-      .then((response) => response.json())
-      .then((data) => setBackendStatus(data.status))
-      .catch(() => setBackendStatus("Disconnected"));
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    let active = true;
+    fetch(`${API_BASE_URL}/api/v1/health`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Health check failed");
+        return response.json();
+      })
+      .then((data) => { if (active) setBackendStatus(data.status); })
+      .catch(() => { if (active) setBackendStatus("disconnected"); })
+      .finally(() => {
+        window.clearTimeout(timeout);
+        if (active) setCheckedAt(new Date());
+      });
+    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
   }, []);
 
-  const handleCreatePolicy = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const res = await fetch("http://localhost:8001/api/v1/policies", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(policyForm),
+  // Update navigation alerts count: query GET /operations?decision=rejected&page_size=1
+  useEffect(() => {
+    const controller = new AbortController();
+    apiRequest<{ total: number }>("/operations?decision=rejected&page_size=1", {
+      signal: controller.signal,
+    })
+      .then((data) => {
+        setAlertsCountState({ count: data.total, loading: false, error: false });
+      })
+      .catch((_err) => {
+        if (!controller.signal.aborted) {
+          setAlertsCountState((prev) => ({ ...prev, loading: false, error: true }));
+        }
       });
-      const data = await res.json();
-      setPolicyResponse(JSON.stringify(data, null, 2));
-    } catch {
-      setPolicyResponse(
-        JSON.stringify({ error: "No se pudo conectar con el backend" }, null, 2)
-      );
-    }
-  };
+    return () => controller.abort();
+  }, [alertsRefreshSignal, backendStatus]);
 
-  const handleNavClick = (tab: string) => {
+  const handleNavClick = (tab: Tab) => {
     setActiveTab(tab);
     setIsMobileMenuOpen(false);
   };
 
+  const handleEvaluateWithPolicy = (policyId: string) => {
+    setPreselectedPolicyId(policyId);
+    setActiveTab("operaciones");
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleNavigateToPolicy = (_policyId: string) => {
+    setActiveTab("policies");
+    setIsMobileMenuOpen(false);
+  };
+
+  const handleOperationEvaluated = (_record: OperationRecord) => {
+    setAlertsRefreshSignal((s) => s + 1);
+  };
+
+  const handlePolicyCreated = (_policy: PolicyRecord) => {
+    setPolicyRefreshSignal((s) => s + 1);
+  };
+
+  // Close mobile navigation on Escape key
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsMobileMenuOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isMobileMenuOpen]);
+
   return (
     <div className="sentinel-container">
-      {/* Botón de Menú Hamburguesa para Móvil */}
-      <button 
-        className="mobile-menu-btn" 
-        onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-        aria-label="Toggle Menu"
-      >
-        {isMobileMenuOpen ? <X size={24} /> : <Menu size={24} />}
-      </button>
+      {/* Mobile top bar with logo, connection status and drawer trigger */}
+      <header className="mobile-top-bar" aria-label="Cabecera móvil">
+        <div className="mobile-brand">
+          <div className="logo-icon mobile-logo-icon">
+            <img src={sentinelLogo} alt="Logo de Sentinel" className="logo-img" width={28} height={28} />
+          </div>
+          <div className="mobile-title-group">
+            <h2 className="mobile-brand-title">Sentinel</h2>
+            <span className="subtitle">Blockchain Intelligence</span>
+          </div>
+        </div>
+        <div className="mobile-top-actions">
+          <span className={`dot ${connectionClass}`} title={connectionLabel} aria-label={connectionLabel} />
+          <button
+            type="button"
+            className="mobile-menu-btn"
+            onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+            aria-expanded={isMobileMenuOpen}
+            aria-controls="main-navigation"
+            aria-label={isMobileMenuOpen ? "Cerrar menú de navegación" : "Abrir menú de navegación"}
+          >
+            {isMobileMenuOpen ? <X size={18} aria-hidden="true" /> : <Menu size={18} aria-hidden="true" />}
+            <span>{isMobileMenuOpen ? "Cerrar" : "Menú"}</span>
+          </button>
+        </div>
+      </header>
 
-      {/* Sidebar de Navegación */}
-      <aside className={`sidebar ${isMobileMenuOpen ? "open" : ""}`}>
+      {/* Backdrop for mobile drawer */}
+      {isMobileMenuOpen && (
+        <div
+          className="sidebar-backdrop"
+          onClick={() => setIsMobileMenuOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside id="main-navigation" className={`sidebar ${isMobileMenuOpen ? "open" : ""}`}>
         <div>
           <div className="logo-area">
-            <div className="logo-img-container">
-              <img src="/src/assets/logo.jpeg" alt="Sentinel Logo" className="sidebar-logo" />
+            <div className="logo-icon">
+              <img src={sentinelLogo} alt="Logo de Sentinel" className="logo-img" width={34} height={34} />
             </div>
-            <div>
-              <h3>Sentinel</h3>
-              <span className="subtitle">AI Blockchain Security</span>
-            </div>
+            <div><h3>Sentinel</h3><span className="subtitle">Blockchain Intelligence</span></div>
+            <button
+              type="button"
+              className="sidebar-mobile-close"
+              onClick={() => setIsMobileMenuOpen(false)}
+              aria-label="Cerrar navegación"
+            >
+              <X size={18} />
+            </button>
           </div>
-          <nav className="nav-menu">
-            <button
-              className={activeTab === "dashboard" ? "nav-btn active" : "nav-btn"}
-              onClick={() => handleNavClick("dashboard")}
-            >
-              <LayoutDashboard size={18} /> Dashboard
-            </button>
-            <button
-              className={activeTab === "operaciones" ? "nav-btn active" : "nav-btn"}
-              onClick={() => handleNavClick("operaciones")}
-            >
-              <svg 
-                width="18" 
-                height="18" 
-                viewBox="0 0 24 24" 
-                fill="none" 
-                stroke="currentColor" 
-                strokeWidth="2" 
-                strokeLinecap="round" 
-                strokeLinejoin="round"
-                style={{ display: 'inline-block', verticalAlign: 'middle' }}
+          <p className="nav-section-label">Centro de control</p>
+          <nav className="nav-menu" aria-label="Navegación principal">
+            {navigation.map(({ id, label, icon: Icon }) => (
+              <button
+                key={id}
+                className={`nav-btn ${activeTab === id ? "active" : ""}`}
+                onClick={() => handleNavClick(id)}
+                aria-current={activeTab === id ? "page" : undefined}
               >
-                <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
-              </svg> 
-              Operaciones
-            </button>
-            <button
-              className={activeTab === "alerts" ? "nav-btn active" : "nav-btn"}
-              onClick={() => handleNavClick("alerts")}
-            >
-              <AlertTriangle size={18} /> Alertas <span className="badge-count">3</span>
-            </button>
-            <button
-              className={activeTab === "reportes" ? "nav-btn active" : "nav-btn"}
-              onClick={() => handleNavClick("reportes")}
-            >
-              <FileText size={18} /> Reportes
-            </button>
-            <button
-              className={activeTab === "configuracion" ? "nav-btn active" : "nav-btn"}
-              onClick={() => handleNavClick("configuracion")}
-            >
-              <Settings size={18} /> Configuración
-            </button>
+                <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
+                {label}
+                {id === "alerts" && (
+                  <span
+                    className={`badge-count numeric ${alertsCountState.error ? "badge-error" : ""}`}
+                    aria-label={
+                      alertsCountState.error
+                        ? "Error al consultar alertas"
+                        : alertsCountState.loading && alertsCountState.count === null
+                        ? "Consultando alertas…"
+                        : `${alertsCountState.count ?? 0} evaluaciones rechazadas`
+                    }
+                    title={
+                      alertsCountState.error
+                        ? "No se pudo consultar el contador en el servidor"
+                        : `${alertsCountState.count ?? 0} evaluaciones rechazadas por política`
+                    }
+                  >
+                    {alertsCountState.error
+                      ? "?"
+                      : alertsCountState.loading && alertsCountState.count === null
+                      ? "…"
+                      : (alertsCountState.count ?? 0).toLocaleString("en-US")}
+                  </span>
+                )}
+              </button>
+            ))}
           </nav>
         </div>
-
         <div className="sidebar-footer">
           <div className="system-indicator">
-            <span className={`dot ${backendStatus === "healthy" ? "online" : "offline"}`}></span>
+            <span className={`dot ${connectionClass}`} aria-hidden="true" />
             <div>
-              <p className="status-text">Sistema Online</p>
-              <small>Última actualización:<br />{currentDate}</small>
+              <p className="status-text" role="status">{connectionLabel}</p>
+              {checkedAt && <small>Última comprobación<time dateTime={checkedAt.toISOString()}>{new Intl.DateTimeFormat("es-PE", { dateStyle: "short", timeStyle: "short", timeZone: "UTC" }).format(checkedAt)} UTC</time></small>}
             </div>
           </div>
         </div>
       </aside>
-
-      {/* Contenido Principal */}
       <main className="main-content">
         <header className="top-header">
           <div className="welcome-box">
-            <h1>Bienvenido a Sentinel</h1>
-            <p>Protección inteligente para tus operaciones en Web3</p>
+            <p className="eyebrow">Inteligencia y control de riesgo</p>
+            <h1>{activeTab === "dashboard" ? "Resumen de operaciones" : navigation.find((item) => item.id === activeTab)?.label}</h1>
+            <p>Análisis y supervisión de seguridad para operaciones blockchain.</p>
           </div>
           <div className="user-profile">
-            <span className="online-badge">● Conectado</span>
-            <div className="avatar">JD</div>
-            <span className="dropdown-arrow">▼</span>
+            <span className="connection-badge"><span className={`dot ${connectionClass}`} aria-hidden="true" />{connectionLabel}</span>
+            <div className="avatar" aria-label="Perfil JD">JD</div>
           </div>
         </header>
 
         {activeTab === "dashboard" && (
           <>
-            {/* Tarjetas de Métricas Superiores */}
-            <section className="metrics-grid">
-              <div className="metric-card card-blue">
-                <div className="metric-content">
-                  <span className="metric-title">Operaciones Analizadas</span>
-                  <div className="metric-row">
-                    <h2>12,480</h2>
-                    <span className="trend-up">↑ +12%</span>
-                  </div>
-                </div>
-                <div className="metric-right-section">
-                  <div className="metric-icon-box blue"><Box size={20} /></div>
-                  <svg className="mini-sparkline" viewBox="0 0 70 25">
-                    <path d="M 0,20 Q 20,15 35,10 T 70,5" fill="none" stroke="#06b6d4" strokeWidth="2" />
-                  </svg>
-                </div>
-              </div>
-
-              <div className="metric-card card-green">
-                <div className="metric-content">
-                  <span className="metric-title">Operaciones Seguras</span>
-                  <div className="metric-row">
-                    <h2>11,920</h2>
-                    <span className="trend-up">↑ +15%</span>
-                  </div>
-                </div>
-                <div className="metric-right-section">
-                  <div className="metric-icon-box green"><CheckCircle2 size={20} /></div>
-                  <svg className="mini-sparkline" viewBox="0 0 70 25">
-                    <path d="M 0,22 Q 25,18 45,8 T 70,3" fill="none" stroke="#10b981" strokeWidth="2" />
-                  </svg>
-                </div>
-              </div>
-
-              <div className="metric-card card-red">
-                <div className="metric-content">
-                  <span className="metric-title">Alertas Críticas</span>
-                  <div className="metric-row">
-                    <h2>12</h2>
-                    <span className="trend-down">↓ -8%</span>
-                  </div>
-                </div>
-                <div className="metric-right-section">
-                  <div className="metric-icon-box red"><AlertTriangle size={20} /></div>
-                  <svg className="mini-sparkline" viewBox="0 0 70 25">
-                    <path d="M 0,5 Q 25,18 50,10 T 70,20" fill="none" stroke="#ef4444" strokeWidth="2" />
-                  </svg>
-                </div>
-              </div>
-
-              <div className="metric-card card-purple">
-                <div className="metric-content">
-                  <span className="metric-title">Políticas Activas</span>
-                  <div className="metric-row">
-                    <h2>5</h2>
-                    <span className="trend-neutral">↑ +0%</span>
-                  </div>
-                </div>
-                <div className="metric-right-section">
-                  <div className="metric-icon-box purple"><Key size={20} /></div>
-                  <svg className="mini-sparkline" viewBox="0 0 70 25">
-                    <path d="M 0,15 Q 20,20 40,8 T 70,5" fill="none" stroke="#a855f7" strokeWidth="2" />
-                  </svg>
-                </div>
-              </div>
+            <div className="section-heading"><h2 id="metrics-heading">Indicadores de supervisión</h2><span className="demo-label">Vista de demostración · Datos ilustrativos</span></div>
+            <section className="metrics-grid" aria-labelledby="metrics-heading">
+              {demoMetrics.map((metric) => <MetricCard key={metric.title} {...metric} />)}
             </section>
-
-            {/* Gráfico y Estado del Sistema */}
             <div className="grid-split">
-              <div className="card">
-                <div className="chart-header-flex">
-                  <h3>Actividad Reciente</h3>
-                  <div className="realtime-badge">
-                    <span className="dot online"></span> En tiempo real
-                  </div>
-                </div>
-                <div className="chart-legend">
-                  <span><span className="dot-total">●</span> Total</span>
-                  <span><span className="dot-risk">●</span> Riesgo</span>
-                </div>
-
+              <section className="card" aria-labelledby="activity-heading">
+                <div className="chart-header-flex"><h3 id="activity-heading">Actividad reciente</h3><span className="demo-label">Muestra de actividad · UTC</span></div>
+                <div className="chart-legend"><span><i className="legend-line" />Total</span><span><i className="legend-line risk" />Riesgo</span></div>
                 <div className="chart-wrapper">
-                  <div className="y-axis-labels">
-                    <span>1,000</span>
-                    <span>750</span>
-                    <span>500</span>
-                    <span>250</span>
-                    <span>0</span>
-                  </div>
-                  <svg className="svg-chart" viewBox="0 0 500 120" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="logoGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#06b6d4" stopOpacity="0.3" />
-                        <stop offset="100%" stopColor="#a855f7" stopOpacity="0.0" />
-                      </linearGradient>
-                      <linearGradient id="lineGrad" x1="0" y1="0" x2="1" y2="0">
-                        <stop offset="0%" stopColor="#06b6d4" />
-                        <stop offset="100%" stopColor="#a855f7" />
-                      </linearGradient>
-                    </defs>
-                    <path
-                      d="M 0,65 Q 50,75 100,50 T 200,45 T 300,55 T 400,30 T 500,35 L 500,120 L 0,120 Z"
-                      fill="url(#logoGradient)"
-                    />
-                    <path
-                      d="M 0,90 Q 60,85 120,95 T 240,88 T 360,92 T 440,85 T 500,90"
-                      fill="none"
-                      stroke="#f59e0b"
-                      strokeWidth="2.5"
-                    />
-                    <path
-                      d="M 0,65 Q 50,75 100,50 T 200,45 T 300,55 T 400,30 T 500,35"
-                      fill="none"
-                      stroke="url(#lineGrad)"
-                      strokeWidth="3"
-                    />
+                  <div className="y-axis-labels numeric" aria-hidden="true"><span>1,000</span><span>750</span><span>500</span><span>250</span><span>0</span></div>
+                  <svg className="svg-chart" viewBox="0 0 500 120" preserveAspectRatio="none" role="img" aria-label="Actividad ilustrativa entre las 04:00 y las 05:00 UTC: el total aumenta y la actividad de riesgo se mantiene por debajo.">
+                    {[0, 30, 60, 90, 120].map((y) => <line key={y} x1="0" x2="500" y1={y} y2={y} className="chart-grid" />)}
+                    <path d="M 0,65 Q 50,75 100,50 T 200,45 T 300,55 T 400,30 T 500,35 L 500,120 L 0,120 Z" fill="var(--azul-marca)" fillOpacity="0.08" />
+                    <path d="M 0,90 Q 60,85 120,95 T 240,88 T 360,92 T 440,85 T 500,90" fill="none" stroke="var(--amarillo-alerta)" strokeWidth="2" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
+                    <path d="M 0,65 Q 50,75 100,50 T 200,45 T 300,55 T 400,30 T 500,35" fill="none" stroke="var(--azul-marca)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
                   </svg>
                 </div>
-
-                <div className="chart-axis-labels">
-                  <span>04:00</span>
-                  <span>04:15</span>
-                  <span>04:30</span>
-                  <span>04:45</span>
-                  <span>05:00</span>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="card-header-row" style={{ borderBottom: '1px solid var(--borde-sutil)', paddingBottom: '12px', marginBottom: '16px' }}>
-                  <h3>Estado del Sistema</h3>
-                </div>
-                <div className="gauge-container">
-                  <div className="gauge-circle">
-                    <h2>99.9%</h2>
-                    <span>Operativo</span>
-                  </div>
-                </div>
+                <div className="chart-axis-labels numeric"><span>04:00</span><span>04:15</span><span>04:30</span><span>04:45</span><span>05:00</span></div>
+              </section>
+              <section className="card" aria-labelledby="system-heading">
+                <div className="card-header-row"><h3 id="system-heading">Estado del sistema</h3><Activity size={17} aria-hidden="true" /></div>
+                <div className="availability"><div><p className="numeric">99.9%</p><p className="availability-label">Disponibilidad ilustrativa</p></div><span className="badge-pill inf">Demo</span></div>
                 <ul className="service-list">
-                  <li><span>Backend FastAPI</span> <strong className="online">Online</strong></li>
-                  <li><span>Base de Datos</span> <strong className="online">Online</strong></li>
-                  <li><span>Conexión NEAR</span> <strong className="online">Online</strong></li>
-                  <li><span>Gemini AI</span> <strong className="online">Online</strong></li>
+                  <li><span>Backend FastAPI</span><strong className={connectionClass}>{isOnline ? "Conectado" : backendStatus === "checking" ? "Verificando" : "Sin conexión"}</strong></li>
+                  {["Base de datos", "Conexión NEAR", "Gemini AI"].map((service) => <li key={service}><span>{service}</span><strong>Sin verificar</strong></li>)}
                 </ul>
-              </div>
+              </section>
             </div>
-
-            {/* Políticas y Alertas */}
             <div className="grid-split">
-              <div className="card">
-                <div className="card-header-row">
-                  <h3>🔒 Políticas de Seguridad</h3>
-                  <span className="link-text" onClick={() => setActiveTab("policies")}>Ver todas →</span>
-                </div>
+              <section className="card" aria-labelledby="policies-heading">
+                <div className="card-header-row"><h3 id="policies-heading"><Lock size={17} aria-hidden="true" />Políticas de seguridad</h3><button className="link-text" onClick={() => handleNavClick("policies")}>Ver todas →</button></div>
+                <p className="demo-label">Controles de demostración · Cambios locales</p>
                 <ul className="policy-list-mini">
-                  <li>
-                    <span>Bloqueo de transacciones sospechosas</span>
-                    <label className="switch"><input type="checkbox" defaultChecked /><span className="slider"></span></label>
-                  </li>
-                  <li>
-                    <span>Límites de monto por operación</span>
-                    <label className="switch"><input type="checkbox" defaultChecked /><span className="slider"></span></label>
-                  </li>
-                  <li>
-                    <span>Detección de anomalías con IA</span>
-                    <label className="switch"><input type="checkbox" defaultChecked /><span className="slider"></span></label>
-                  </li>
-                  <li>
-                    <span>Validación de contratos inteligentes</span>
-                    <label className="switch"><input type="checkbox" defaultChecked /><span className="slider"></span></label>
-                  </li>
+                  {demoPolicies.map((name) => <li key={name}><span>{name}</span><label className="switch"><input type="checkbox" defaultChecked aria-label={name} /><span className="slider" /></label></li>)}
                 </ul>
-              </div>
-
-              <div className="card">
-                <div className="card-header-row">
-                  <h3>⚠️ Últimas Alertas</h3>
-                  <span className="link-text" onClick={() => setActiveTab("alerts")}>Ver todas →</span>
-                </div>
-                <div className="alert-item critical">
-                  <div className="alert-row">
-                    <p><strong>Operación de alto riesgo detectada</strong></p>
-                    <span className="badge-pill crit">Crítica</span>
-                  </div>
-                  <small>Hace 2 min • Riesgo: 92%</small>
-                </div>
-                <div className="alert-item warning">
-                  <div className="alert-row">
-                    <p><strong>Patrón inusual en contratos</strong></p>
-                    <span className="badge-pill warn">Advertencia</span>
-                  </div>
-                  <small>Hace 5 min • Riesgo: 68%</small>
-                </div>
-                <div className="alert-item info">
-                  <div className="alert-row">
-                    <p><strong>Política actualizada</strong></p>
-                    <span className="badge-pill inf">Info</span>
-                  </div>
-                  <small>Hace 10 min • Nueva regla de seguridad</small>
-                </div>
-              </div>
+              </section>
+              <section className="card" aria-labelledby="alerts-heading">
+                <div className="card-header-row"><h3 id="alerts-heading"><AlertTriangle size={17} aria-hidden="true" />Últimas alertas</h3><button className="link-text" onClick={() => handleNavClick("alerts")}>Ver todas →</button></div>
+                <RecentAlerts />
+              </section>
             </div>
           </>
         )}
 
-        {activeTab === "policies" && (
-          <section className="card">
-            <h3>⚙️ Configuración y Creación de Políticas (API Backend)</h3>
-            <form onSubmit={handleCreatePolicy} className="policy-form">
-              <label>
-                Nombre de la Política:
-                <input 
-                  type="text" 
-                  value={policyForm.name} 
-                  onChange={(e) => setPolicyForm({...policyForm, name: e.target.value})} 
-                />
-              </label>
-              <label>
-                Monto Máximo (max_amount):
-                <input 
-                  type="text" 
-                  value={policyForm.max_amount} 
-                  onChange={(e) => setPolicyForm({...policyForm, max_amount: e.target.value})} 
-                />
-              </label>
-              <button type="submit" className="action-btn">Guardar Política</button>
-            </form>
-            {policyResponse && (
-              <div className="response-box"><pre>{policyResponse}</pre></div>
-            )}
-          </section>
-        )}
+        <OperationsPage
+          active={activeTab === "operaciones"}
+          preselectedPolicyId={preselectedPolicyId}
+          onClearPreselectedPolicy={() => setPreselectedPolicyId(null)}
+          onOperationEvaluated={handleOperationEvaluated}
+          onPolicyCreated={handlePolicyCreated}
+          onNavigateToPolicy={handleNavigateToPolicy}
+          policyRefreshSignal={policyRefreshSignal}
+        />
 
-        {activeTab === "alerts" && (
-          <section className="card">
-            <h3>🚨 Centro de Alertas Críticas</h3>
-            <div className="alert-item critical">
-              <p><strong>Op-001: Transferencia bloqueada por exceder límite</strong></p>
-              <small>Agente: sentinel-demo-agent • Red: near-testnet • Riesgo: 85%</small>
-            </div>
+        <PoliciesPage
+          active={activeTab === "policies"}
+          onEvaluateWithPolicy={handleEvaluateWithPolicy}
+          onPolicyCreatedNotification={handlePolicyCreated}
+          refreshSignal={policyRefreshSignal}
+        />
+
+        <AlertsPage
+          active={activeTab === "alerts"}
+          onNavigateToPolicy={handleNavigateToPolicy}
+          refreshSignal={alertsRefreshSignal}
+        />
+
+        <ConfigPage
+          active={activeTab === "configuracion"}
+          backendOnline={isOnline}
+        />
+
+        {activeTab === "reportes" && (
+          <section className="card empty-state">
+            <h3><FileText size={18} />Reportes de seguridad</h3>
+            <p>Esta sección aún no dispone de datos consolidados. Puedes consultar el centro de alertas o el historial de operaciones.</p>
+            <button className="link-text" onClick={() => handleNavClick("dashboard")}>Volver al dashboard →</button>
           </section>
         )}
       </main>

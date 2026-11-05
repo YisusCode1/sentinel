@@ -1,0 +1,99 @@
+.alerts-page[hidden] {
+  display: none;
+}
+
+.alerts-page {
+  animation: fadeIn 150ms ease-in-out;
+}
+
+.alerts-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  background: #30232c;
+  border: 1px solid #74414a;
+  border-radius: var(--radio-panel);
+  color: #fecaca;
+  font-size: 0.85rem;
+}
+
+.alerts-banner svg {
+  color: var(--rojo-critico);
+  margin-top: 2px;
+}
+
+.alerts-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.alerts-summary.rejected {
+  border-top: 2px solid var(--rojo-critico);
+}
+
+.alerts-summary.page {
+  border-top: 2px solid var(--amarillo-alerta);
+}
+
+.alerts-summary.system {
+  border-top: 2px solid var(--texto-secundario);
+}
+
+.alerts-summary .metric-value {
+  margin: 16px 0 8px;
+}
+
+.alerts-summary small {
+  color: var(--texto-secundario);
+  font-size: 0.8rem;
+}
+
+.alerts-failed-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 220px;
+}
+
+.failed-check-pill {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid #74414a;
+  border-radius: 4px;
+  background: #3a2530;
+  color: #fca5a5;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.alert-reason-text {
+  color: var(--texto-secundario);
+  font-size: 0.75rem;
+  max-width: 240px;
+  overflow-wrap: anywhere;
+}
+
+/* Detail drawer / view */
+.alert-detail-container {
+  margin-bottom: 24px;
+}
+
+@media (max-width: 900px) {
+  .alerts-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .alerts-banner {
+    padding: 12px 14px;
+    font-size: 0.8rem;
+  }
+  .alert-detail-container {
+    margin-bottom: 16px;
+  }
+}

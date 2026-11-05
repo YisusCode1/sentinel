@@ -1,0 +1,436 @@
+import { useEffect, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronLeft,
+  ChevronRight,
+  CircleSlash,
+  Download,
+  Filter,
+  RefreshCw,
+  Search,
+  ShieldAlert,
+} from "lucide-react";
+import { apiRequest } from "../../lib/api";
+import OperationResult, { DecisionBadge } from "../operations/OperationResult";
+import { alertsQuery, displayDate, operationsCsv } from "../operations/utils";
+import type { OperationPage, OperationRecord } from "../operations/types";
+import "./alerts.css";
+
+interface Filters {
+  q: string;
+  date_from: string;
+  date_to: string;
+}
+
+const emptyFilters: Filters = { q: "", date_from: "", date_to: "" };
+const errorMessage = (err: unknown) =>
+  err instanceof Error ? err.message : "No se pudo consultar el servidor de alertas.";
+
+interface Props {
+  active: boolean;
+  onNavigateToPolicy?: (policyId: string) => void;
+  refreshSignal?: number;
+}
+
+export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }: Props) {
+  const [data, setData] = useState<OperationPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [localRefresh, setLocalRefresh] = useState(0);
+
+  const [draftFilters, setDraftFilters] = useState<Filters>(emptyFilters);
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [filterError, setFilterError] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+
+  const [selectedRecord, setSelectedRecord] = useState<OperationRecord | null>(null);
+  const [detailPending, setDetailPending] = useState(false);
+  const [detailError, setDetailError] = useState("");
+  const [notice, setNotice] = useState("");
+
+  const detailRequest = useRef<AbortController | null>(null);
+  const detailRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!active) return;
+    const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset pending and invalidate previous data when query changes.
+    setLoading(true);
+    setError("");
+    setData(null);
+
+    const query = alertsQuery(filters, page, pageSize);
+    apiRequest<OperationPage>(`/operations?${query}`, { signal: controller.signal })
+      .then(setData)
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          setError(errorMessage(err));
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [active, filters, page, pageSize, localRefresh, refreshSignal]);
+
+  useEffect(() => () => detailRequest.current?.abort(), []);
+
+  async function openDetail(id: string) {
+    detailRequest.current?.abort();
+    const controller = new AbortController();
+    detailRequest.current = controller;
+    setDetailPending(true);
+    setDetailError("");
+    setSelectedRecord(null);
+
+    detailRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
+    detailRef.current?.focus({ preventScroll: true });
+
+    try {
+      const record = await apiRequest<OperationRecord>(`/operations/${encodeURIComponent(id)}`, {
+        signal: controller.signal,
+      });
+      setSelectedRecord(record);
+    } catch (err) {
+      if (!controller.signal.aborted) {
+        setDetailError(errorMessage(err));
+      }
+    } finally {
+      if (!controller.signal.aborted) setDetailPending(false);
+    }
+  }
+
+  function applyFilters(event: React.FormEvent) {
+    event.preventDefault();
+    if (draftFilters.date_from && draftFilters.date_to && draftFilters.date_from > draftFilters.date_to) {
+      setFilterError("La fecha inicial debe ser anterior o igual a la final.");
+      return;
+    }
+    setFilterError("");
+    setPage(1);
+    setFilters({ ...draftFilters });
+  }
+
+  function resetFilters() {
+    setDraftFilters(emptyFilters);
+    setFilters(emptyFilters);
+    setFilterError("");
+    setPage(1);
+  }
+
+  function exportVisibleCsv() {
+    if (!data?.items.length) return;
+    const csv = operationsCsv(data.items);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `sentinel-alertas-pagina-${data.page}.csv`;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setNotice(`Se exportó la página ${data.page} con ${data.items.length} registros de alertas rechazadas.`);
+  }
+
+  const pages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
+
+  return (
+    <div className="alerts-page" hidden={!active}>
+      <div className="section-heading">
+        <h2>Centro de alertas</h2>
+        <span className="demo-label">Evaluaciones rechazadas por política · Servidor</span>
+      </div>
+
+      <div className="alerts-banner" role="region" aria-label="Aviso institucional sobre rechazos de política">
+        <AlertTriangle size={18} aria-hidden="true" />
+        <div>
+          <strong>Rechazos por política de seguridad</strong>
+          <p>
+            Esta vista reúne todas las solicitudes que no cumplieron las condiciones definidas en su respectiva política. Un rechazo por política no demuestra la existencia de fraude, vulnerabilidad crítica ni el bloqueo de transacciones en una red blockchain.
+          </p>
+        </div>
+      </div>
+
+      <div className="alerts-summary-grid" aria-label="Indicadores de alertas rechazadas">
+        <article className="metric-card alerts-summary rejected">
+          <h3 className="metric-title">Alertas rechazadas</h3>
+          <p className="metric-value numeric">
+            {data ? data.summary.rejected.toLocaleString("en-US") : "—"}
+          </p>
+          <small>Según los filtros aplicados en el servidor</small>
+        </article>
+        <article className="metric-card alerts-summary page">
+          <h3 className="metric-title">Registros visibles</h3>
+          <p className="metric-value numeric">
+            {data ? `${data.items.length} / ${data.total}` : "—"}
+          </p>
+          <small>Página {page} de {pages}</small>
+        </article>
+        <article className="metric-card alerts-summary system">
+          <h3 className="metric-title">Análisis de riesgo IA</h3>
+          <div className="metric-value" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "1.4rem" }}>
+            <CircleSlash size={22} aria-hidden="true" />
+            <span>No disponible</span>
+          </div>
+          <small>Sin modelo IA ni firma on-chain</small>
+        </article>
+      </div>
+
+      {notice && (
+        <p className="ops-message" role="status">
+          {notice}
+        </p>
+      )}
+
+      {/* Detail panel if an alert is selected */}
+      {(selectedRecord || detailPending || detailError) && (
+        <div ref={detailRef} tabIndex={-1} className="alert-detail-container ops-result-anchor">
+          <OperationResult
+            record={selectedRecord}
+            pending={detailPending}
+            error={detailError}
+            onNavigateToPolicy={onNavigateToPolicy}
+            onClose={() => {
+              setSelectedRecord(null);
+              setDetailError("");
+            }}
+          />
+        </div>
+      )}
+
+      <section className="card" aria-labelledby="alerts-table-heading" aria-busy={loading}>
+        <div className="card-header-row">
+          <h3 id="alerts-table-heading">
+            <ShieldAlert size={18} aria-hidden="true" />
+            Historial de operaciones rechazadas
+          </h3>
+          <div className="ops-toolbar">
+            <button
+              type="button"
+              className="ops-secondary-button"
+              onClick={() => setLocalRefresh((v) => v + 1)}
+              disabled={loading}
+            >
+              <RefreshCw size={14} />
+              Actualizar
+            </button>
+            <button
+              type="button"
+              className="ops-secondary-button"
+              onClick={exportVisibleCsv}
+              disabled={loading || !data?.items.length}
+              title="Descarga un archivo CSV con las alertas visibles en esta página"
+            >
+              <Download size={14} />
+              Exportar página visible CSV
+            </button>
+          </div>
+        </div>
+
+        <form className="ops-filters" onSubmit={applyFilters}>
+          <label className="ops-field ops-search">
+            Buscar alertas
+            <div className="ops-search-input">
+              <Search size={16} aria-hidden="true" />
+              <input
+                maxLength={256}
+                placeholder="ID, agente, destinatario o token…"
+                value={draftFilters.q}
+                onChange={(e) => setDraftFilters({ ...draftFilters, q: e.target.value })}
+              />
+            </div>
+          </label>
+          <label className="ops-field">
+            Desde · UTC
+            <input
+              type="date"
+              className="numeric"
+              value={draftFilters.date_from}
+              max={draftFilters.date_to || undefined}
+              onChange={(e) => setDraftFilters({ ...draftFilters, date_from: e.target.value })}
+            />
+          </label>
+          <label className="ops-field">
+            Hasta · UTC
+            <input
+              type="date"
+              className="numeric"
+              value={draftFilters.date_to}
+              min={draftFilters.date_from || undefined}
+              onChange={(e) => setDraftFilters({ ...draftFilters, date_to: e.target.value })}
+            />
+          </label>
+          <button className="ops-secondary-button" type="submit" disabled={loading}>
+            <Filter size={15} />
+            Aplicar filtros
+          </button>
+          <button className="link-text" type="button" onClick={resetFilters}>
+            Restablecer
+          </button>
+        </form>
+
+        {filterError && (
+          <p className="ops-message error" role="alert">
+            {filterError}
+          </p>
+        )}
+
+        {loading ? (
+          <div className="ops-empty" role="status">
+            <span className="ops-loading-indicator" />
+            <h4>Cargando alertas</h4>
+            <p>Consultando operaciones rechazadas en el backend…</p>
+          </div>
+        ) : error ? (
+          <div className="ops-message error" role="alert">
+            <p>{error}</p>
+            <button
+              type="button"
+              className="link-text"
+              onClick={() => setLocalRefresh((v) => v + 1)}
+            >
+              Reintentar
+            </button>
+          </div>
+        ) : !data?.items.length ? (
+          <div className="ops-empty">
+            <ShieldAlert size={28} />
+            <h4>
+              {Object.values(filters).some(Boolean)
+                ? "Sin alertas con los filtros actuales"
+                : "No hay alertas rechazadas"}
+            </h4>
+            <p>
+              {Object.values(filters).some(Boolean)
+                ? "Ajusta la búsqueda o restablece las fechas para encontrar más registros."
+                : "Las operaciones evaluadas que incumplan una política aparecerán automáticamente aquí."}
+            </p>
+          </div>
+        ) : (
+          <div
+            className="ops-table-scroll"
+            role="region"
+            aria-label="Tabla de operaciones rechazadas por política"
+            tabIndex={0}
+          >
+            <table className="ops-table">
+              <caption className="ops-sr-only">
+                Operaciones rechazadas registradas en el backend. Fechas en formato UTC.
+              </caption>
+              <thead>
+                <tr>
+                  <th scope="col">Operación / agente</th>
+                  <th scope="col">Fecha · UTC</th>
+                  <th scope="col">Monto solicitado</th>
+                  <th scope="col">Destinatario</th>
+                  <th scope="col">Política / controles fallidos</th>
+                  <th scope="col">Decisión</th>
+                  <th scope="col">Detalle</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.items.map((record) => {
+                  const failedChecks = record.checks.filter((c) => !c.passed);
+                  const isSelected = selectedRecord?.operation_id === record.operation_id;
+                  return (
+                    <tr key={record.operation_id} aria-selected={isSelected}>
+                      <td>
+                        <span className="ops-table-id numeric" title={record.operation_id}>
+                          {record.operation_id.slice(0, 12)}…
+                        </span>
+                        <small className="contract-address">{record.agent_id}</small>
+                      </td>
+                      <td>
+                        <time dateTime={record.created_at}>{displayDate(record.created_at)}</time>
+                      </td>
+                      <td className="ops-amount-cell">
+                        <strong className="numeric">{record.amount}</strong>
+                        <small>{record.token} · {record.operation}</small>
+                      </td>
+                      <td className="ops-recipient">
+                        <span className="contract-address">{record.recipient}</span>
+                        <small>{record.network}</small>
+                      </td>
+                      <td>
+                        <strong>{record.policy_name}</strong>
+                        <div className="alerts-failed-checks">
+                          {failedChecks.map((fc) => (
+                            <span key={fc.code} className="failed-check-pill" title={fc.detail}>
+                              {fc.label}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="alert-reason-text">{record.reason}</p>
+                      </td>
+                      <td>
+                        <DecisionBadge decision={record.decision} />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="ops-icon-button"
+                          onClick={() => openDetail(record.operation_id)}
+                          aria-label={`Ver detalle completo de alerta ${record.operation_id}`}
+                        >
+                          <ArrowRight size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {data && (
+          <div className="ops-pagination">
+            <span>
+              <span className="numeric">{data.total}</span> alertas · Página{" "}
+              <span className="numeric">{page}</span> de <span className="numeric">{pages}</span>
+            </span>
+            <div className="ops-pagination-controls">
+              <label>
+                Filas
+                <select
+                  className="numeric"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                >
+                  {[10, 25, 50].map((size) => (
+                    <option value={size} key={size}>
+                      {size}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="ops-icon-button"
+                aria-label="Página anterior"
+                disabled={page <= 1 || loading}
+                onClick={() => setPage(page - 1)}
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <button
+                type="button"
+                className="ops-icon-button"
+                aria-label="Página siguiente"
+                disabled={page >= pages || loading}
+                onClick={() => setPage(page + 1)}
+              >
+                <ChevronRight size={18} />
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}

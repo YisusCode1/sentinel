@@ -1,179 +1,95 @@
-# Sentinel API Contract — Initial Draft
+﻿# API de Sentinel — Operaciones implementadas
 
-This document is the shared interface between frontend, backend and AI. Treat it as a draft until endpoints and schemas are implemented and tested. Backend owner coordinates changes.
+Base local: `http://localhost:8001/api/v1`. Esquemas interactivos: `http://localhost:8001/docs`.
 
-## Base URL (local)
+## Políticas
 
-`http://localhost:8001`
-
-## Health
-
-`GET /api/v1/health`
-
-Example:
+- `POST /policies`: crea una política; responde `201` con `id`, `created_at` y los campos enviados.
+- `GET /policies`: devuelve un array de políticas existentes.
+- `GET /policies/{id}`: obtiene una política; `404` si no existe.
 
 ```json
 {
-  "status": "healthy",
-  "service": "sentinel-backend"
-}
-```
-
-## Create policy
-
-`POST /api/v1/policies`
-
-Initial policy fields (final schema to be agreed):
-
-```json
-{
-  "name": "Demo transfer policy",
+  "name": "Transferencias de tesorería",
   "max_amount": "100",
   "allowed_tokens": ["USDC"],
-  "allowed_recipients": ["demo-recipient"],
+  "allowed_recipients": ["treasury.testnet"],
   "allowed_operations": ["transfer"]
 }
 ```
 
-## Retrieve policy
+Nombre e identificadores: 1–256 caracteres, sin espacios exteriores. Cada lista requiere 1–50 entradas no vacías. Las coincidencias son exactas y distinguen mayúsculas. Una lista vacía no significa permitir todo. No se crean políticas automáticamente.
 
-`GET /api/v1/policies/{id}`
-
-## Evaluate operation
-
-`POST /api/v1/operations/evaluate`
-
-Request example:
-
-```json
-{
-  "agent_id": "sentinel-demo-agent",
-  "policy_id": "policy-001",
-  "network": "near-testnet",
-  "operation": "transfer",
-  "token": "USDC",
-  "amount": "40",
-  "recipient": "demo-recipient"
-}
-```
-
-Response example:
-
-```json
-{
-  "operation_id": "op-001",
-  "decision": "rejected",
-  "reason": "Amount exceeds policy limit",
-  "policy_id": "policy-001",
-  "risk_score": 85,
-  "requires_signature": false
-}
-```
-
-These are examples, not guarantees of current implementation. Align naming, enum values, optional fields, error responses and signature semantics before frontend integration.
-
-## List operations
-
-`GET /api/v1/operations`
-
-## Security semantics
-
-- The Policy Engine makes deterministic policy decisions.
-- AI risk analysis is advisory and cannot approve or change policy.
-- A backend response alone does not enforce a transaction on an external wallet.
-- Any verifiable authorization must be bound to operation details and checked by the component controlling execution.
-- Never display “on-chain verified” unless the relevant verification has actually occurred.
-
-### En Español
-
-# Contrato de API de Sentinel — Borrador inicial
-
-Este documento define la interfaz compartida entre el frontend, el backend y la inteligencia artificial (IA). Debe considerarse un borrador hasta que los endpoints y los esquemas estén implementados y hayan sido probados. El responsable del backend coordinará los cambios.
-
-## URL base (entorno local)
-
-`http://localhost:8001`
-
-## Estado del servicio (Health)
-
-`GET /api/v1/health`
-
-Ejemplo de respuesta:
-
-```json
-{
-  "status": "healthy",
-  "service": "sentinel-backend"
-}
-```
-
-## Crear una política
-
-`POST /api/v1/policies`
-
-Campos iniciales de la política (el esquema definitivo está pendiente de aprobación):
-
-```json
-{
-  "name": "Demo transfer policy",
-  "max_amount": "100",
-  "allowed_tokens": ["USDC"],
-  "allowed_recipients": ["demo-recipient"],
-  "allowed_operations": ["transfer"]
-}
-```
-
-## Obtener una política
-
-`GET /api/v1/policies/{id}`
-
-Permite recuperar una política específica mediante su identificador (`id`).
+Los montos son **strings decimales positivos**, con hasta 30 dígitos enteros y 24 decimales. No se aceptan exponentes, números JSON, separadores de miles, negativos, cero, NaN ni infinito. El límite se expresa en unidades del token solicitado; no hay conversión entre activos ni cálculo de cotizaciones.
 
 ## Evaluar una operación
 
-`POST /api/v1/operations/evaluate`
-
-Ejemplo de solicitud:
+`POST /operations/evaluate` → `201`. La cabecera opcional `Idempotency-Key` acepta un UUID. El frontend la envía y reutiliza al reintentar un envío sin respuesta. La misma clave y solicitud devuelve la evaluación original; la misma clave con otros datos devuelve `409`.
 
 ```json
 {
-  "agent_id": "sentinel-demo-agent",
-  "policy_id": "policy-001",
+  "agent_id": "sentinel-agent",
+  "policy_id": "<id devuelto al crear la política>",
   "network": "near-testnet",
   "operation": "transfer",
   "token": "USDC",
   "amount": "40",
-  "recipient": "demo-recipient"
+  "recipient": "treasury.testnet"
 }
 ```
 
-Ejemplo de respuesta:
+La red admitida actualmente es `near-testnet`. Todos los campos son obligatorios. Se rechazan los campos desconocidos (`422`). Una política inexistente devuelve `404`; una solicitud inválida no se registra como operación rechazada.
+
+El motor evalúa monto máximo, token permitido, destinatario autorizado y tipo de operación. La decisión es `approved` solo cuando pasan los cuatro controles; en otro caso es `rejected`. El monto se compara con `Decimal`, sin conversión a coma flotante.
+
+La respuesta contiene todos los campos de la solicitud y:
+
+| Campo | Significado |
+| --- | --- |
+| `operation_id` | Identificador generado en el servidor |
+| `created_at` | Fecha ISO 8601 en UTC |
+| `decision` | `approved` o `rejected`, según la política |
+| `reason` | Explicación del resultado |
+| `policy_name`, `policy_snapshot` | Nombre y copia de la política evaluada |
+| `checks` | Array con `code`, `label`, `passed`, `detail` por control |
+| `risk_score` | `null`: no hay analizador IA implementado |
+| `risk_analysis_status` | `unavailable` |
+| `requires_signature` | `null`: firma no implementada |
+| `verification_status` | `not_performed` |
+| `execution_status` | `not_submitted` |
+
+Tanto las evaluaciones aprobadas como rechazadas se guardan antes de responder.
+
+## Historial y detalle
+
+`GET /operations` admite:
+
+- `q`: búsqueda literal sin distinción de mayúsculas, hasta 256 caracteres; busca ID, agente, política, red, tipo, token, monto y destinatario.
+- `decision`: `approved` o `rejected`; omitir para ambas.
+- `date_from`, `date_to`: fechas `YYYY-MM-DD`, inclusivas y en UTC.
+- `page`: desde 1; predeterminado 1.
+- `page_size`: 1–100; predeterminado 10.
 
 ```json
 {
-  "operation_id": "op-001",
-  "decision": "rejected",
-  "reason": "Amount exceeds policy limit",
-  "policy_id": "policy-001",
-  "risk_score": 85,
-  "requires_signature": false
+  "items": [],
+  "total": 0,
+  "page": 1,
+  "page_size": 10,
+  "summary": { "total": 0, "approved": 0, "rejected": 0 }
 }
 ```
 
-Estos ejemplos son ilustrativos y no garantizan que la implementación actual funcione exactamente de esta manera.
+`items` contiene evaluaciones completas, más recientes primero. `summary` y `total` consideran todos los registros que cumplen los filtros, antes de paginar. Las fechas inválidas, rangos invertidos y parámetros fuera de rango devuelven `422`.
 
-Antes de integrar el frontend, se deben definir y unificar los nombres de los campos, los valores permitidos de los enumerados (enum), los campos opcionales, las respuestas de error y la lógica relacionada con las firmas.
+`GET /operations/{operation_id}` devuelve una evaluación completa o `404`.
 
-## Listar operaciones
+## Persistencia y ejecución local
 
-`GET /api/v1/operations`
+Se utiliza SQLAlchemy. Con `DATABASE_URL`, se conecta al PostgreSQL configurado en Docker Compose. Sin esa variable, usa SQLite persistente en `backend/data/sentinel.db` (ignorado por Git). Las tablas iniciales se crean al arrancar. No hay datos simulados ni precarga en la sección Operaciones.
 
-Permite obtener el listado de operaciones registradas.
+CORS admite los orígenes locales de Vite en puertos 5173 y 5174, tanto `localhost` como `127.0.0.1`. `CORS_ORIGINS` permite configurar una lista de orígenes separados por comas. El frontend acepta `VITE_API_BASE_URL` (ver `frontend/.env.example`).
 
-## Consideraciones de seguridad
+Este servicio es un prototipo local sin autenticación ni separación entre usuarios. El flujo implementado **evalúa y registra**, no envía transacciones, firma autorizaciones, consulta Gemini ni verifica contratos en NEAR. Aprobar una política no equivale a certificar seguridad ni a bloquear una billetera externa. No se implementan aún límites de frecuencia, conversión monetaria ni ejecución on-chain.
 
-- **Motor de políticas (Policy Engine):** toma decisiones deterministas basadas en las políticas configuradas.
-- **Análisis de riesgo mediante IA:** tiene carácter consultivo y no puede aprobar operaciones ni modificar las decisiones del motor de políticas.
-- **Ejecución de transacciones:** una respuesta del backend, por sí sola, no garantiza ni ejecuta una transacción en una billetera externa.
-- **Autorización verificable:** cualquier autorización que pueda verificarse debe estar vinculada a los detalles específicos de la operación y ser validada por el componente que controla su ejecución.
-- **Verificación en blockchain (On-chain):** nunca se debe mostrar el mensaje «Verificado en blockchain» (on-chain verified) a menos que la verificación correspondiente se haya realizado realmente.
+Las pruebas automatizadas del repositorio cubren SQLite. PostgreSQL utiliza la configuración existente de Compose y debe verificarse en ese entorno al desplegar.

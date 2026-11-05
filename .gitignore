@@ -1,8 +1,11 @@
 # Python
 __pycache__/
 *.pyc
+*.db
+*.sqlite3
 .venv/
 venv/
+backend/data/
 .env
 
 # Node
