@@ -1,0 +1,178 @@
+.collapsible-banner {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 16px;
+  margin-bottom: 20px;
+  border-radius: var(--radius-panel, 8px);
+  font-size: 13px;
+  line-height: 1.5;
+  transition: all 200ms ease;
+}
+
+.collapsible-banner.tone-info {
+  background: rgba(20, 45, 67, 0.7);
+  border: 1px solid rgba(40, 80, 106, 0.8);
+  color: #d4e5f2;
+}
+
+.collapsible-banner.tone-info svg.banner-main-icon {
+  color: var(--azul-texto, #7dd3fc);
+}
+
+.collapsible-banner.tone-warning,
+.collapsible-banner.tone-critical {
+  background: rgba(48, 35, 44, 0.7);
+  border: 1px solid rgba(116, 65, 74, 0.8);
+  color: #fecaca;
+}
+
+.collapsible-banner.tone-warning svg.banner-main-icon,
+.collapsible-banner.tone-critical svg.banner-main-icon {
+  color: var(--rojo-critico, #ef4444);
+}
+
+.banner-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner-title {
+  display: block;
+  font-weight: 600;
+  color: #ffffff;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.banner-description {
+  margin: 0;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.banner-btn-text {
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 150ms, background-color 150ms;
+}
+
+.banner-btn-text:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.banner-btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 150ms;
+}
+
+.banner-btn-icon:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+
+/* Collapsed Single-Line Mode */
+.collapsible-banner.is-collapsed {
+  align-items: center;
+  padding: 8px 14px;
+  min-height: 40px;
+}
+
+.banner-collapsed-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.banner-collapsed-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Tooltip / Popover trigger container */
+.banner-tooltip-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  cursor: help;
+}
+
+.banner-tooltip-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 50;
+  width: max-content;
+  max-width: 380px;
+  padding: 12px 14px;
+  background: #0f172a;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 12px 28px -4px rgba(0, 0, 0, 0.7);
+  color: #e2e8f0;
+  font-size: 13px;
+  line-height: 1.5;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity 160ms ease, transform 160ms ease;
+}
+
+.banner-tooltip-trigger:hover .banner-tooltip-popover,
+.banner-tooltip-trigger:focus-within .banner-tooltip-popover {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (max-width: 640px) {
+  .collapsible-banner {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .collapsible-banner.is-collapsed {
+    flex-direction: row;
+  }
+  .banner-actions {
+    width: 100%;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  .collapsible-banner.is-collapsed .banner-actions {
+    width: auto;
+    margin-top: 0;
+  }
+}

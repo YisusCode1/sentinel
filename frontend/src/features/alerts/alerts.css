@@ -66,13 +66,13 @@
   border-radius: 4px;
   background: #3a2530;
   color: #fca5a5;
-  font-size: 0.7rem;
+  font-size: 12px;
   font-weight: 500;
 }
 
 .alert-reason-text {
   color: var(--texto-secundario);
-  font-size: 0.75rem;
+  font-size: 13px;
   max-width: 240px;
   overflow-wrap: anywhere;
 }

@@ -118,7 +118,7 @@
   padding: 14px 16px;
   background: var(--bg-sidebar);
   color: var(--texto-secundario);
-  font-size: 0.72rem;
+  font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
 }
@@ -157,10 +157,12 @@
 
 .policy-id-text {
   color: var(--azul-texto);
-  font-size: 0.72rem;
+  font-size: 13px;
 }
 
 .copy-mini-btn {
+  min-width: 32px;
+  min-height: 32px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -169,7 +171,7 @@
   border: 1px solid #526176;
   border-radius: 4px;
   color: var(--texto-secundario);
-  font-size: 0.68rem;
+  font-size: 12px;
   cursor: pointer;
 }
 
@@ -196,7 +198,7 @@
   display: block;
   margin-top: 2px;
   color: var(--texto-secundario);
-  font-size: 0.7rem;
+  font-size: 13px;
 }
 
 .policy-pills {
@@ -213,7 +215,7 @@
   border-radius: 4px;
   background: var(--bg-principal);
   color: #cbd5e1;
-  font-size: 0.7rem;
+  font-size: 12px;
 }
 
 .policy-pill.token {

@@ -17,7 +17,8 @@
 .ops-muted,
 .ops-field-help {
   color: var(--texto-secundario);
-  font-size: 0.8rem;
+  font-size: 13px;
+  line-height: 1.5;
   font-weight: 400;
 }
 
@@ -36,7 +37,7 @@
 .ops-result-anchor { min-width: 0; scroll-margin-top: 24px; }
 .ops-result-anchor:focus-visible { outline: 2px solid var(--azul-texto); outline-offset: 4px; border-radius: 8px; }
 .ops-result { min-height: 390px; }
-.ops-step { color: var(--texto-secundario); font-size: 0.72rem; }
+.ops-step { color: var(--texto-secundario); font-size: 12px; font-weight: 500; }
 .ops-policy-creator { margin-bottom: 24px; }
 
 .ops-form-grid {
@@ -98,7 +99,7 @@
   font-weight: 500;
 }
 
-.ops-icon-button { width: 40px; flex-shrink: 0; padding: 8px; }
+.ops-icon-button { width: 44px; min-height: 44px; flex-shrink: 0; padding: 8px; }
 .ops-secondary-button:hover:not(:disabled),
 .ops-icon-button:hover:not(:disabled) { background: #26394e; border-color: #94a3b8; }
 .operations-page button:disabled { cursor: default; }

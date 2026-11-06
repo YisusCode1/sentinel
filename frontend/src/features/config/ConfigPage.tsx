@@ -1,4 +1,5 @@
 import { CircleSlash, Database, Info, Server, Settings } from "lucide-react";
+import CollapsibleBanner from "../../components/ui/CollapsibleBanner";
 import { API_BASE_URL } from "../../lib/api";
 import "./config.css";
 
@@ -15,15 +16,17 @@ export default function ConfigPage({ active, backendOnline }: Props) {
         <span className="demo-label">Parámetros operativos · Sentinel v0.2.0</span>
       </div>
 
-      <div className="policies-banner" role="region" aria-label="Aviso de configuración">
-        <Info size={18} aria-hidden="true" />
-        <div>
-          <strong>Parámetros del entorno de ejecución</strong>
-          <p>
-            Esta pantalla detalla la configuración técnica real del sistema. Las reglas de autorización para operaciones blockchain se configuran de forma completa en la pestaña <strong>Políticas</strong>. Sentinel no implementa ajustes ficticios ni opciones simuladas.
-          </p>
-        </div>
-      </div>
+      <CollapsibleBanner
+        id="config-environment-info"
+        title="Parámetros del entorno de ejecución"
+        tone="info"
+        icon={<Info size={18} className="banner-main-icon" aria-hidden="true" />}
+        ariaLabel="Aviso de configuración"
+      >
+        <p>
+          Esta pantalla detalla la configuración técnica real del sistema. Las reglas de autorización para operaciones blockchain se configuran de forma completa en la pestaña <strong>Políticas</strong>. Sentinel no implementa ajustes ficticios ni opciones simuladas.
+        </p>
+      </CollapsibleBanner>
 
       <div className="config-grid">
         <section className="card" aria-labelledby="env-config-heading">

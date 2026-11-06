@@ -1,3 +1,7 @@
+import AnimatedState from '../../components/ui/AnimatedState';
+import { useToast } from '../../components/ui/ToastProvider';
+import Button from '../../components/ui/Button';
+import { TableSkeleton } from '../../components/ui/Skeleton';
 import { useEffect, useRef, useState } from "react";
 import { Activity, ArrowRight, ChevronLeft, ChevronRight, Download, Filter, Plus, RefreshCw, Search, ShieldCheck } from "lucide-react";
 import { apiRequest } from "../../lib/api";
@@ -30,6 +34,7 @@ export default function OperationsPage({
   onNavigateToPolicy,
   policyRefreshSignal,
 }: OperationsPageProps) {
+  const notify = useToast();
   const [input, setInput] = useState<OperationInput>(initialInput);
   const [policies, setPolicies] = useState<PolicyRecord[]>([]);
   const [loadingPolicies, setLoadingPolicies] = useState(false);
@@ -37,6 +42,7 @@ export default function OperationsPage({
   const [policyRefresh, setPolicyRefresh] = useState(0);
   const [creatingPolicy, setCreatingPolicy] = useState(false);
   const [formError, setFormError] = useState("");
+  const [evaluationError, setEvaluationError] = useState("");
   const [evaluating, setEvaluating] = useState(false);
   const [result, setResult] = useState<OperationRecord | null>(null);
   const [detailPending, setDetailPending] = useState(false);
@@ -64,10 +70,10 @@ export default function OperationsPage({
     setPoliciesError("");
     apiRequest<PolicyRecord[]>("/policies", { signal: controller.signal })
       .then(setPolicies)
-      .catch((error) => { if (!controller.signal.aborted) setPoliciesError(errorMessage(error)); })
+      .catch((error) => { if (!controller.signal.aborted) { setPoliciesError(errorMessage(error)); notify({ title: 'No se pudieron cargar las políticas', description: errorMessage(error), tone: 'error', key: 'operation-policies' }); } })
       .finally(() => { if (!controller.signal.aborted) setLoadingPolicies(false); });
     return () => controller.abort();
-  }, [active, policyRefresh, policyRefreshSignal]);
+  }, [active, policyRefresh, policyRefreshSignal, notify]);
 
   useEffect(() => {
     if (!preselectedPolicyId || !policies.length) return;
@@ -90,10 +96,10 @@ export default function OperationsPage({
     setData(null);
     apiRequest<Page>(`/operations?${operationQuery(filters, page, pageSize)}`, { signal: controller.signal })
       .then(setData)
-      .catch((error) => { if (!controller.signal.aborted) setHistoryError(errorMessage(error)); })
+      .catch((error) => { if (!controller.signal.aborted) { setHistoryError(errorMessage(error)); notify({ title: 'No se pudo cargar el historial', description: errorMessage(error), tone: 'error', key: 'history' }); } })
       .finally(() => { if (!controller.signal.aborted) setLoadingHistory(false); });
     return () => controller.abort();
-  }, [active, filters, page, pageSize, historyRefresh]);
+  }, [active, filters, page, pageSize, historyRefresh, notify]);
 
   useEffect(() => () => detailRequest.current?.abort(), []);
 
@@ -127,6 +133,7 @@ export default function OperationsPage({
     setDetailPending(false);
     setDetailError("");
     setFormError("");
+    setEvaluationError("");
     setNotice("");
     setResult(null);
     setEvaluating(true);
@@ -138,7 +145,7 @@ export default function OperationsPage({
       setPage(1);
       setHistoryRefresh((previous) => previous + 1);
       onOperationEvaluated?.(record);
-    } catch (error) { setFormError(errorMessage(error)); }
+    } catch (error) { setEvaluationError(errorMessage(error)); notify({ title: 'No se pudo evaluar la operación', description: errorMessage(error), tone: 'error', key: 'evaluation-error' }); }
     finally { setEvaluating(false); }
   }
 
@@ -148,11 +155,12 @@ export default function OperationsPage({
     detailRequest.current = controller;
     setDetailPending(true);
     setDetailError("");
+    setEvaluationError("");
     setResult(null);
     resultRef.current?.scrollIntoView({ behavior: "auto", block: "start" });
     resultRef.current?.focus({ preventScroll: true });
     try { setResult(await apiRequest<OperationRecord>(`/operations/${encodeURIComponent(id)}`, { signal: controller.signal })); }
-    catch (error) { if (!controller.signal.aborted) setDetailError(errorMessage(error)); }
+    catch (error) { if (!controller.signal.aborted) { setDetailError(errorMessage(error)); notify({ title: 'No se pudo cargar el detalle', description: errorMessage(error), tone: 'error', key: 'operation-detail' }); } }
     finally { if (!controller.signal.aborted) setDetailPending(false); }
   }
 
@@ -176,6 +184,7 @@ export default function OperationsPage({
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setNotice(`Se exportó la página ${data.page} con ${data.items.length} registros.`);
+    notify({ title: 'CSV generado', description: `${data.items.length} registros de la página ${data.page}.`, tone: 'success', key: 'operations-export' });
   }
 
   const pages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
@@ -221,36 +230,38 @@ export default function OperationsPage({
               <label className="ops-field ops-span-full">Destinatario / contrato<input required className="contract-address" maxLength={256} placeholder="tesoreria.testnet" value={input.recipient} onChange={(e) => updateInput("recipient", e.target.value)} /></label>
             </fieldset>
             {formError && <p className="ops-message error" role="alert">{formError}</p>}
-            <div className="ops-form-actions"><button type="button" className="ops-secondary-button" disabled={evaluating} onClick={() => { setInput(initialInput); setFormError(""); }}>Limpiar</button><button className="action-btn" disabled={evaluating || loadingPolicies || !selectedPolicy}><ShieldCheck size={17} />{evaluating ? "Evaluando…" : "Evaluar operación"}</button></div>
+            <div className="ops-form-actions"><Button variant="secondary" type="button" disabled={evaluating} onClick={() => { setInput(initialInput); setFormError(""); }}>Limpiar</Button><Button variant="primary" type="submit" loading={evaluating} loadingLabel="Evaluando…" disabled={loadingPolicies || !selectedPolicy}><ShieldCheck size={17} aria-hidden="true" />Evaluar operación</Button></div>
           </form>
         </section>
         <div ref={resultRef} tabIndex={-1} className="ops-result-anchor">
           <OperationResult
             record={result}
             pending={evaluating || detailPending}
-            error={detailError}
+            error={detailError || evaluationError}
             onNavigateToPolicy={onNavigateToPolicy}
           />
         </div>
       </div>
       <section className="card ops-history" aria-labelledby="history-title" aria-busy={loadingHistory}>
-        <div className="card-header-row"><h3 id="history-title">Historial de evaluaciones</h3><div className="ops-toolbar"><button type="button" className="ops-secondary-button" disabled={loadingHistory} onClick={() => setHistoryRefresh((previous) => previous + 1)}><RefreshCw size={15} />Actualizar</button><button type="button" className="ops-secondary-button" onClick={exportPage} disabled={!data?.items.length || loadingHistory}><Download size={15} />Exportar página CSV</button></div></div>
+        <div className="card-header-row"><h3 id="history-title">Historial de evaluaciones</h3><div className="ops-toolbar"><Button variant="secondary" type="button" disabled={loadingHistory} onClick={() => setHistoryRefresh((previous) => previous + 1)}><RefreshCw size={15} />Actualizar</Button><Button variant="secondary" type="button" onClick={exportPage} disabled={!data?.items.length || loadingHistory}><Download size={15} />Exportar página CSV</Button></div></div>
         <form className="ops-filters" onSubmit={applyFilters}>
           <label className="ops-field ops-search">Buscar<div className="ops-search-input"><Search size={16} aria-hidden="true" /><input maxLength={256} placeholder="ID, agente, destinatario o token" value={draftFilters.q} onChange={(e) => setDraftFilters({ ...draftFilters, q: e.target.value })} /></div></label>
           <label className="ops-field">Decisión<select value={draftFilters.decision} onChange={(e) => setDraftFilters({ ...draftFilters, decision: e.target.value as OperationFilters['decision'] })}><option value="">Todas</option><option value="approved">Aprobada</option><option value="rejected">Rechazada</option></select></label>
           <label className="ops-field">Desde · UTC<input type="date" className="numeric" value={draftFilters.date_from} max={draftFilters.date_to || undefined} onChange={(e) => setDraftFilters({ ...draftFilters, date_from: e.target.value })} /></label>
           <label className="ops-field">Hasta · UTC<input type="date" className="numeric" value={draftFilters.date_to} min={draftFilters.date_from || undefined} onChange={(e) => setDraftFilters({ ...draftFilters, date_to: e.target.value })} /></label>
-          <button className="ops-secondary-button" type="submit"><Filter size={15} />Aplicar filtros</button>
+          <Button variant="secondary"  type="submit"><Filter size={15} />Aplicar filtros</Button>
           <button className="link-text" type="button" onClick={() => { setDraftFilters(emptyFilters); setFilters(emptyFilters); setFilterError(""); setPage(1); }}>Restablecer</button>
         </form>
         {filterError && <p className="ops-message error" role="alert">{filterError}</p>}
-        {loadingHistory ? <div className="ops-empty" role="status">Cargando historial…</div> : historyError ? <div className="ops-message error" role="alert"><p>{historyError}</p><button type="button" className="link-text" onClick={() => setHistoryRefresh((previous) => previous + 1)}>Reintentar</button></div> : !data?.items.length ? <div className="ops-empty"><Activity size={28} /><h4>{Object.values(filters).some(Boolean) ? "No hay resultados con estos filtros" : "Aún no hay evaluaciones"}</h4><p>{Object.values(filters).some(Boolean) ? "Ajusta la búsqueda o restablece los filtros." : "Evalúa tu primera operación para iniciar el historial."}</p></div> : (
+        <AnimatedState stateKey={loadingHistory ? 'loading' : historyError ? 'error' : data?.items.length ? 'ready' : 'empty'}>
+        {loadingHistory ? <TableSkeleton label="Cargando historial de evaluaciones…" columns={6} /> : historyError ? <div className="ops-message error" role="alert"><p>{historyError}</p><button type="button" className="link-text" onClick={() => setHistoryRefresh((previous) => previous + 1)}>Reintentar</button></div> : !data?.items.length ? <div className="ops-empty"><Activity size={28} /><h4>{Object.values(filters).some(Boolean) ? "No hay resultados con estos filtros" : "Aún no hay evaluaciones"}</h4><p>{Object.values(filters).some(Boolean) ? "Ajusta la búsqueda o restablece los filtros." : "Evalúa tu primera operación para iniciar el historial."}</p></div> : (
           <div className="ops-table-scroll" role="region" aria-label="Tabla de evaluaciones; desplázate horizontalmente para ver todas las columnas" tabIndex={0}>
             <table className="ops-table"><caption className="ops-sr-only">Evaluaciones registradas en el servidor. Fechas en UTC.</caption><thead><tr><th scope="col">Operación / agente</th><th scope="col">Fecha · UTC</th><th scope="col">Monto</th><th scope="col">Destinatario</th><th scope="col">Decisión</th><th scope="col">Detalle</th></tr></thead>
               <tbody>{data.items.map((record) => <tr key={record.operation_id} aria-selected={result?.operation_id === record.operation_id}><td><span className="ops-table-id numeric" title={record.operation_id}>{record.operation_id.slice(0, 11)}…</span><small className="contract-address">{record.agent_id}</small></td><td><time dateTime={record.created_at}>{displayDate(record.created_at)}</time></td><td className="ops-amount-cell"><strong className="numeric">{record.amount}</strong><small>{record.token} · {record.operation}</small></td><td className="ops-recipient"><span className="contract-address">{record.recipient}</span><small>{record.network}</small></td><td><DecisionBadge decision={record.decision} /></td><td><button type="button" className="ops-icon-button" onClick={() => openDetail(record.operation_id)} disabled={evaluating} aria-label={`Ver detalle de ${record.operation_id}`}><ArrowRight size={18} /></button></td></tr>)}</tbody>
             </table>
           </div>
         )}
+      </AnimatedState>
         {data && <div className="ops-pagination"><span><span className="numeric">{data.total}</span> resultados · Página <span className="numeric">{page}</span> de <span className="numeric">{pages}</span></span><div className="ops-pagination-controls"><label>Filas<select className="numeric" value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>{[10, 25, 50].map((size) => <option value={size} key={size}>{size}</option>)}</select></label><button type="button" className="ops-icon-button" aria-label="Página anterior" disabled={page <= 1} onClick={() => setPage(page - 1)}><ChevronLeft size={18} /></button><button type="button" className="ops-icon-button" aria-label="Página siguiente" disabled={page >= pages} onClick={() => setPage(page + 1)}><ChevronRight size={18} /></button></div></div>}
       </section>
     </div>

@@ -1,4 +1,8 @@
-import { useState } from "react";
+import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
+import { useId, useState } from "react";
+import { useToast } from '../../components/ui/ToastProvider';
+import AnimatedState from '../../components/ui/AnimatedState';
 import { Lock, X } from "lucide-react";
 import { apiRequest } from "../../lib/api";
 import { amountPattern, isPositiveAmount } from "./utils";
@@ -17,6 +21,8 @@ export default function PolicyCreator({
   submitLabel = "Crear política",
   title = "Nueva política de seguridad",
 }: Props) {
+  const notify = useToast();
+  const headingId = useId();
   const [form, setForm] = useState({
     name: "",
     max_amount: "100",
@@ -32,6 +38,7 @@ export default function PolicyCreator({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
+    if (saving) return;
     const name = form.name.trim();
     const max_amount = form.max_amount.trim();
     const parseList = (value: string) => [
@@ -80,15 +87,16 @@ export default function PolicyCreator({
       onCreated(created);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo crear la política en el servidor.");
+      notify({ title: 'No se pudo crear la política', description: cause instanceof Error ? cause.message : 'Error de conexión con el servidor.', tone: 'error', key: 'create-policy-error' });
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <section className="card ops-policy-creator" aria-labelledby="create-policy-title">
+    <Card className="card ops-policy-creator" aria-labelledby={headingId}>
       <div className="card-header-row">
-        <h3 id="create-policy-title">
+        <h3 id={headingId}>
           <Lock size={18} aria-hidden="true" />
           {title}
         </h3>
@@ -162,25 +170,25 @@ export default function PolicyCreator({
             <small>Cuentas o contratos autorizados. Separa con comas o saltos de línea (1 a 50 valores).</small>
           </label>
         </fieldset>
-        {error && (
+        <AnimatedState stateKey={error ? 'error' : 'idle'}>{error && (
           <p className="ops-message error" role="alert">
             {error}
           </p>
-        )}
+        )}</AnimatedState>
         <div className="ops-form-actions">
-          <button
+          <Button variant="secondary"
             type="button"
-            className="ops-secondary-button"
+
             onClick={onClose}
             disabled={saving}
           >
             Cancelar
-          </button>
-          <button className="action-btn" type="submit" disabled={saving}>
-            {saving ? "Guardando en servidor…" : submitLabel}
-          </button>
+          </Button>
+          <Button variant="primary" type="submit" loading={saving} loadingLabel="Guardando en servidor…">
+            {submitLabel}
+          </Button>
         </div>
       </form>
-    </section>
+    </Card>
   );
 }

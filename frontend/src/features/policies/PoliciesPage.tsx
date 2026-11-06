@@ -1,3 +1,9 @@
+import AnimatedState from '../../components/ui/AnimatedState';
+import { useToast } from '../../components/ui/ToastProvider';
+import Modal from '../../components/ui/Modal';
+import Button from '../../components/ui/Button';
+import CollapsibleBanner from '../../components/ui/CollapsibleBanner';
+import { TableSkeleton } from '../../components/ui/Skeleton';
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -30,6 +36,7 @@ export default function PoliciesPage({
   onPolicyCreatedNotification,
   refreshSignal,
 }: Props) {
+  const notify = useToast();
   const [policies, setPolicies] = useState<PolicyRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -53,13 +60,14 @@ export default function PoliciesPage({
       .catch((err) => {
         if (!controller.signal.aborted) {
           setError(err instanceof Error ? err.message : "No se pudieron cargar las políticas.");
+          notify({ title: 'No se pudieron cargar las políticas', description: err instanceof Error ? err.message : 'Error de conexión con el servidor.', tone: 'error', key: 'policies' });
         }
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [active, localRefresh, refreshSignal]);
+  }, [active, localRefresh, refreshSignal, notify]);
 
   const filteredPolicies = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -94,7 +102,10 @@ export default function PoliciesPage({
     const success = await copyToClipboard(id);
     if (success) {
       setCopiedId(id);
+      notify({ title: 'Identificador copiado', tone: 'success', key: 'copy-policy' });
       window.setTimeout(() => setCopiedId((curr) => (curr === id ? null : curr)), 2000);
+    } else {
+      notify({ title: 'No se pudo copiar el identificador', description: 'Selecciona el identificador y cópialo manualmente.', tone: 'error', key: 'copy-policy' });
     }
   }
 
@@ -105,15 +116,17 @@ export default function PoliciesPage({
         <span className="demo-label">Reglas de autorización · Persistidas en el servidor</span>
       </div>
 
-      <div className="policies-banner" role="region" aria-label="Información sobre el alcance de las políticas">
-        <Info size={18} aria-hidden="true" />
-        <div>
-          <strong>Reglas directas de evaluación</strong>
-          <p>
-            En Sentinel, toda política registrada en el backend está lista para evaluarse de forma inmediata en las operaciones de agentes. El servidor no utiliza estados ficticios de activación o desactivación.
-          </p>
-        </div>
-      </div>
+      <CollapsibleBanner
+        id="policies-scope-info"
+        title="Reglas directas de evaluación"
+        tone="info"
+        icon={<Info size={18} className="banner-main-icon" aria-hidden="true" />}
+        ariaLabel="Información sobre el alcance de las políticas"
+      >
+        <p>
+          En Sentinel, toda política registrada en el backend está lista para evaluarse de forma inmediata en las operaciones de agentes. El servidor no utiliza estados ficticios de activación o desactivación.
+        </p>
+      </CollapsibleBanner>
 
       <div className="policies-summary-grid" aria-label="Indicadores de políticas">
         <article className="metric-card policies-summary">
@@ -150,24 +163,24 @@ export default function PoliciesPage({
             Catálogo de políticas
           </h3>
           <div className="policies-actions">
-            <button
+            <Button variant="secondary"
               type="button"
-              className="ops-secondary-button"
+
               onClick={() => setLocalRefresh((v) => v + 1)}
               disabled={loading}
             >
               <RefreshCw size={14} />
               Actualizar
-            </button>
-            <button
+            </Button>
+            <Button variant="primary"
               type="button"
-              className="action-btn"
+
               onClick={() => setCreating(true)}
               disabled={creating || loading}
             >
               <Plus size={16} />
               Nueva política
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -193,12 +206,9 @@ export default function PoliciesPage({
           )}
         </div>
 
+        <AnimatedState stateKey={loading ? 'loading' : error ? 'error' : !policies.length ? 'empty' : !filteredPolicies.length ? 'filtered-empty' : 'ready'}>
         {loading ? (
-          <div className="ops-empty" role="status">
-            <span className="ops-loading-indicator" />
-            <h4>Cargando políticas</h4>
-            <p>Consultando el catálogo en el servidor…</p>
-          </div>
+          <TableSkeleton label="Cargando políticas. Consultando el catálogo en el servidor…" columns={7} />
         ) : error ? (
           <div className="ops-message error" role="alert">
             <p>{error}</p>
@@ -215,14 +225,14 @@ export default function PoliciesPage({
             <Shield size={32} strokeWidth={1.25} />
             <h4>Aún no hay políticas registradas</h4>
             <p>Crea tu primera política para establecer límites de monto, tokens permitidos y destinatarios autorizados.</p>
-            <button
+            <Button variant="primary"
               type="button"
-              className="action-btn"
+
               onClick={() => setCreating(true)}
             >
               <Plus size={16} />
               Crear primera política
-            </button>
+            </Button>
           </div>
         ) : !filteredPolicies.length ? (
           <div className="ops-empty">
@@ -313,22 +323,22 @@ export default function PoliciesPage({
                       </td>
                       <td className="policy-actions-cell">
                         <div className="policy-actions-group">
-                          <button
+                          <Button variant="secondary"
                             type="button"
-                            className="ops-secondary-button"
+
                             onClick={() => setSelectedPolicy(p)}
                             aria-label={`Ver detalles de ${p.name}`}
                           >
                             Detalle
-                          </button>
-                          <button
+                          </Button>
+                          <Button variant="primary"
                             type="button"
-                            className="action-btn"
+
                             onClick={() => onEvaluateWithPolicy(p.id)}
                             title="Seleccionar esta política en la pestaña Operaciones"
                           >
                             Evaluar <ArrowRight size={14} />
-                          </button>
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -338,17 +348,12 @@ export default function PoliciesPage({
             </table>
           </div>
         )}
+      </AnimatedState>
       </section>
 
       {/* Policy Detail Modal */}
-      {selectedPolicy && (
-        <div
-          className="policy-modal-backdrop"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="policy-modal-title"
-          onClick={() => setSelectedPolicy(null)}
-        >
+      {active && selectedPolicy && (
+        <Modal labelledBy="policy-modal-title" onClose={() => setSelectedPolicy(null)}>
           <div
             className="card policy-detail-card"
             onClick={(e) => e.stopPropagation()}
@@ -443,16 +448,16 @@ export default function PoliciesPage({
             </p>
 
             <div className="policy-detail-actions">
-              <button
+              <Button variant="secondary"
                 type="button"
-                className="ops-secondary-button"
+
                 onClick={() => setSelectedPolicy(null)}
               >
                 Cerrar
-              </button>
-              <button
+              </Button>
+              <Button variant="primary"
                 type="button"
-                className="action-btn"
+
                 onClick={() => {
                   const id = selectedPolicy.id;
                   setSelectedPolicy(null);
@@ -460,10 +465,10 @@ export default function PoliciesPage({
                 }}
               >
                 Evaluar con esta política <ArrowRight size={14} />
-              </button>
+              </Button>
             </div>
           </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

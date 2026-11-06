@@ -1,4 +1,9 @@
-import { useState } from "react";
+import AnimatedState from '../../components/ui/AnimatedState';
+import { useToast } from '../../components/ui/ToastProvider';
+import Button from '../../components/ui/Button';
+import Card from '../../components/ui/Card';
+import { ResultSkeleton } from '../../components/ui/Skeleton';
+import { useEffect, useId, useRef, useState } from "react";
 import { CheckCircle2, CircleSlash, RefreshCw, ShieldCheck, X, XCircle } from "lucide-react";
 import { apiRequest } from "../../lib/api";
 import { displayDate } from "./utils";
@@ -32,38 +37,12 @@ export default function OperationResult({
   onNavigateToPolicy,
   onClose,
 }: Props) {
-  const [currentPolicy, setCurrentPolicy] = useState<PolicyRecord | null>(null);
-  const [fetchingPolicy, setFetchingPolicy] = useState(false);
-  const [policyLookupError, setPolicyLookupError] = useState("");
-  const [hasQueriedPolicy, setHasQueriedPolicy] = useState(false);
-  const [prevRecordId, setPrevRecordId] = useState(record?.operation_id);
-
-  if (record?.operation_id !== prevRecordId) {
-    setPrevRecordId(record?.operation_id);
-    setCurrentPolicy(null);
-    setPolicyLookupError("");
-    setHasQueriedPolicy(false);
-  }
-
-  async function checkLivePolicy() {
-    if (!record?.policy_id) return;
-    setFetchingPolicy(true);
-    setPolicyLookupError("");
-    try {
-      const live = await apiRequest<PolicyRecord>(`/policies/${encodeURIComponent(record.policy_id)}`);
-      setCurrentPolicy(live);
-    } catch (err) {
-      setPolicyLookupError(err instanceof Error ? err.message : "No se pudo consultar la política actual en el servidor.");
-    } finally {
-      setFetchingPolicy(false);
-      setHasQueriedPolicy(true);
-    }
-  }
+  const headingId = useId();
 
   return (
-    <section className="card ops-result" aria-labelledby="evaluation-result-title" aria-busy={pending}>
+    <Card className="card ops-result" aria-labelledby={headingId} aria-busy={pending}>
       <div className="card-header-row">
-        <h3 id="evaluation-result-title">
+        <h3 id={headingId}>
           <ShieldCheck size={18} aria-hidden="true" />
           Resultado de evaluación
         </h3>
@@ -79,12 +58,9 @@ export default function OperationResult({
         )}
       </div>
 
-      {pending ? (
-        <div className="ops-empty" role="status">
-          <span className="ops-loading-indicator" />
-          <h4>Consultando evaluación</h4>
-          <p>Esperando la respuesta del servidor…</p>
-        </div>
+      <AnimatedState stateKey={pending ? 'loading' : error ? 'error' : record ? record.operation_id : 'empty'}>
+        {pending ? (
+        <ResultSkeleton />
       ) : error ? (
         <p className="ops-message error" role="alert">
           {error}
@@ -183,46 +159,7 @@ export default function OperationResult({
             </dl>
           </details>
 
-          <div className="ops-live-policy-box">
-            <div className="ops-live-policy-header">
-              <span>Estado actual de la política en el servidor</span>
-              {!hasQueriedPolicy && (
-                <button
-                  type="button"
-                  className="link-text"
-                  onClick={checkLivePolicy}
-                  disabled={fetchingPolicy}
-                >
-                  <RefreshCw size={13} />
-                  {fetchingPolicy ? "Consultando…" : "Verificar política actual"}
-                </button>
-              )}
-            </div>
-            {hasQueriedPolicy && currentPolicy && (
-              <div className="ops-live-policy-content">
-                <p>
-                  <strong>Política encontrada:</strong> {currentPolicy.name} ({currentPolicy.id.slice(-8)})
-                </p>
-                <small>
-                  Límite actual: <span className="numeric">{currentPolicy.max_amount}</span> · Tokens: {currentPolicy.allowed_tokens.join(", ")}
-                </small>
-                {onNavigateToPolicy && (
-                  <button
-                    type="button"
-                    className="ops-secondary-button ops-mt-sm"
-                    onClick={() => onNavigateToPolicy(currentPolicy.id)}
-                  >
-                    Abrir en pestaña Políticas →
-                  </button>
-                )}
-              </div>
-            )}
-            {hasQueriedPolicy && policyLookupError && (
-              <p className="ops-message error ops-mt-sm" role="alert">
-                {policyLookupError}
-              </p>
-            )}
-          </div>
+          <LivePolicy key={record.operation_id} policyId={record.policy_id} onNavigateToPolicy={onNavigateToPolicy} />
 
           <div className="ops-analysis-note">
             <CircleSlash size={16} aria-hidden="true" />
@@ -236,6 +173,82 @@ export default function OperationResult({
           </p>
         </>
       )}
-    </section>
+      </AnimatedState>
+    </Card>
+  );
+}
+
+function LivePolicy({ policyId, onNavigateToPolicy }: { policyId: string; onNavigateToPolicy?: (id: string) => void }) {
+  const notify = useToast();
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), []);
+  const [currentPolicy, setCurrentPolicy] = useState<PolicyRecord | null>(null);
+  const [fetchingPolicy, setFetchingPolicy] = useState(false);
+  const [policyLookupError, setPolicyLookupError] = useState("");
+  const [hasQueriedPolicy, setHasQueriedPolicy] = useState(false);
+  async function checkLivePolicy() {
+    if (fetchingPolicy) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setFetchingPolicy(true);
+    setPolicyLookupError("");
+    try {
+      const live = await apiRequest<PolicyRecord>(`/policies/${encodeURIComponent(policyId)}`, { signal: controller.signal });
+      if (!controller.signal.aborted) setCurrentPolicy(live);
+      if (!controller.signal.aborted) notify({ title: 'Política verificada en el servidor', description: live.name, tone: 'success', key: 'live-policy' });
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      setPolicyLookupError(err instanceof Error ? err.message : "No se pudo consultar la política actual en el servidor.");
+      notify({ title: 'No se pudo verificar la política', description: err instanceof Error ? err.message : 'Error de conexión con el servidor.', tone: 'error', key: 'live-policy' });
+    } finally {
+      if (!controller.signal.aborted) { setFetchingPolicy(false); setHasQueriedPolicy(true); }
+    }
+  }
+
+  return (
+          <div className="ops-live-policy-box">
+            <div className="ops-live-policy-header">
+              <span>Estado actual de la política en el servidor</span>
+              {!currentPolicy && (
+                <button
+                  type="button"
+                  className="link-text"
+                  onClick={checkLivePolicy}
+                  disabled={fetchingPolicy}
+                >
+                  <RefreshCw size={13} />
+                  {fetchingPolicy ? "Consultando…" : hasQueriedPolicy ? "Reintentar consulta" : "Verificar política actual"}
+                </button>
+              )}
+            </div>
+            <AnimatedState stateKey={fetchingPolicy ? 'loading' : policyLookupError ? 'error' : currentPolicy ? 'ready' : 'idle'}>
+              {fetchingPolicy && <p role="status" className="ops-field-help">Consultando política actual…</p>}
+            {hasQueriedPolicy && currentPolicy && (
+              <div className="ops-live-policy-content">
+                <p>
+                  <strong>Política encontrada:</strong> {currentPolicy.name} ({currentPolicy.id.slice(-8)})
+                </p>
+                <small>
+                  Límite actual: <span className="numeric">{currentPolicy.max_amount}</span> · Tokens: {currentPolicy.allowed_tokens.join(", ")}
+                </small>
+                {onNavigateToPolicy && (
+                  <Button variant="secondary"
+                    type="button"
+                    className="ops-mt-sm"
+                    onClick={() => onNavigateToPolicy(currentPolicy.id)}
+                  >
+                    Abrir en pestaña Políticas →
+                  </Button>
+                )}
+              </div>
+            )}
+            {hasQueriedPolicy && policyLookupError && (
+              <p className="ops-message error ops-mt-sm" role="alert">
+                {policyLookupError}
+              </p>
+            )}
+            </AnimatedState>
+          </div>
+
   );
 }

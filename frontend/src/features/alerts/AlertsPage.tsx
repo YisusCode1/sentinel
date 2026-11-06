@@ -1,3 +1,8 @@
+import AnimatedState from '../../components/ui/AnimatedState';
+import { useToast } from '../../components/ui/ToastProvider';
+import Button from '../../components/ui/Button';
+import CollapsibleBanner from '../../components/ui/CollapsibleBanner';
+import { TableSkeleton } from '../../components/ui/Skeleton';
 import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
@@ -34,6 +39,7 @@ interface Props {
 }
 
 export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }: Props) {
+  const notify = useToast();
   const [data, setData] = useState<OperationPage | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -67,6 +73,7 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
       .catch((err) => {
         if (!controller.signal.aborted) {
           setError(errorMessage(err));
+          notify({ title: 'No se pudieron cargar las alertas', description: errorMessage(err), tone: 'error', key: 'alerts' });
         }
       })
       .finally(() => {
@@ -74,7 +81,7 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
       });
 
     return () => controller.abort();
-  }, [active, filters, page, pageSize, localRefresh, refreshSignal]);
+  }, [active, filters, page, pageSize, localRefresh, refreshSignal, notify]);
 
   useEffect(() => () => detailRequest.current?.abort(), []);
 
@@ -97,6 +104,7 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
     } catch (err) {
       if (!controller.signal.aborted) {
         setDetailError(errorMessage(err));
+        notify({ title: 'No se pudo cargar el detalle', description: errorMessage(err), tone: 'error', key: 'alert-detail' });
       }
     } finally {
       if (!controller.signal.aborted) setDetailPending(false);
@@ -132,6 +140,7 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
     link.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 1000);
     setNotice(`Se exportó la página ${data.page} con ${data.items.length} registros de alertas rechazadas.`);
+    notify({ title: 'CSV de alertas generado', description: `${data.items.length} registros de la página ${data.page}.`, tone: 'success', key: 'alerts-export' });
   }
 
   const pages = data ? Math.max(1, Math.ceil(data.total / pageSize)) : 1;
@@ -143,15 +152,17 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
         <span className="demo-label">Evaluaciones rechazadas por política · Servidor</span>
       </div>
 
-      <div className="alerts-banner" role="region" aria-label="Aviso institucional sobre rechazos de política">
-        <AlertTriangle size={18} aria-hidden="true" />
-        <div>
-          <strong>Rechazos por política de seguridad</strong>
-          <p>
-            Esta vista reúne todas las solicitudes que no cumplieron las condiciones definidas en su respectiva política. Un rechazo por política no demuestra la existencia de fraude, vulnerabilidad crítica ni el bloqueo de transacciones en una red blockchain.
-          </p>
-        </div>
-      </div>
+      <CollapsibleBanner
+        id="alerts-rejected-info"
+        title="Rechazos por política de seguridad"
+        tone="warning"
+        icon={<AlertTriangle size={18} className="banner-main-icon" aria-hidden="true" />}
+        ariaLabel="Aviso institucional sobre rechazos de política"
+      >
+        <p>
+          Esta vista reúne todas las solicitudes que no cumplieron las condiciones definidas en su respectiva política. Un rechazo por política no demuestra la existencia de fraude, vulnerabilidad crítica ni el bloqueo de transacciones en una red blockchain.
+        </p>
+      </CollapsibleBanner>
 
       <div className="alerts-summary-grid" aria-label="Indicadores de alertas rechazadas">
         <article className="metric-card alerts-summary rejected">
@@ -207,25 +218,25 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
             Historial de operaciones rechazadas
           </h3>
           <div className="ops-toolbar">
-            <button
+            <Button variant="secondary"
               type="button"
-              className="ops-secondary-button"
+
               onClick={() => setLocalRefresh((v) => v + 1)}
               disabled={loading}
             >
               <RefreshCw size={14} />
               Actualizar
-            </button>
-            <button
+            </Button>
+            <Button variant="secondary"
               type="button"
-              className="ops-secondary-button"
+
               onClick={exportVisibleCsv}
               disabled={loading || !data?.items.length}
               title="Descarga un archivo CSV con las alertas visibles en esta página"
             >
               <Download size={14} />
               Exportar página visible CSV
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -262,10 +273,10 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
               onChange={(e) => setDraftFilters({ ...draftFilters, date_to: e.target.value })}
             />
           </label>
-          <button className="ops-secondary-button" type="submit" disabled={loading}>
+          <Button variant="secondary"  type="submit" disabled={loading}>
             <Filter size={15} />
             Aplicar filtros
-          </button>
+          </Button>
           <button className="link-text" type="button" onClick={resetFilters}>
             Restablecer
           </button>
@@ -277,12 +288,9 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
           </p>
         )}
 
+        <AnimatedState stateKey={loading ? 'loading' : error ? 'error' : data?.items.length ? 'ready' : 'empty'}>
         {loading ? (
-          <div className="ops-empty" role="status">
-            <span className="ops-loading-indicator" />
-            <h4>Cargando alertas</h4>
-            <p>Consultando operaciones rechazadas en el backend…</p>
-          </div>
+          <TableSkeleton label="Cargando alertas. Consultando operaciones rechazadas en el backend…" columns={6} />
         ) : error ? (
           <div className="ops-message error" role="alert">
             <p>{error}</p>
@@ -384,6 +392,7 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
             </table>
           </div>
         )}
+      </AnimatedState>
 
         {data && (
           <div className="ops-pagination">
