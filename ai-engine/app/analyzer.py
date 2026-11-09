@@ -1,24 +1,18 @@
+from analyzer.schemas import (
+    OperationAnalysisRequest,
+    RiskAnalysisResponse,
+)
+from analyzer.service import analyze_operation_async
 
-from app.schemas import RiskAnalysisRequest, RiskAnalysisResponse
 
-
-def analyze_risk(
-    request: RiskAnalysisRequest,
+async def analyze_risk(
+    request: OperationAnalysisRequest,
 ) -> RiskAnalysisResponse:
     """
-    Temporary mock analyzer.
+    Ejecuta el análisis de riesgo mediante Gemini.
 
-    Replace this implementation with Gemini integration.
-    This function must never authorize transactions.
+    El resultado es únicamente informativo.
+    Nunca autoriza ni ejecuta transacciones.
     """
 
-    return RiskAnalysisResponse(
-        risk_level="MEDIUM",
-        risk_score=50,
-        alerts=["AI analysis is currently running in mock mode"],
-        explanation=(
-            "This is a simulated risk assessment. "
-            "Gemini integration has not been implemented yet."
-        ),
-        recommendation="REVIEW",
-    )
+    return await analyze_operation_async(request)

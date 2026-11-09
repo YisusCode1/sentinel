@@ -8,8 +8,12 @@ services:
       - "8001:8000"
     volumes:
       - ./backend:/app
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_password@db:5432/sentinel_db
+      AI_ENGINE_URL: http://host.docker.internal:8002
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-}
     depends_on:
       db:
         condition: service_healthy
