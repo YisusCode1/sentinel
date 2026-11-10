@@ -28,3 +28,5 @@ broadcast/
 backups/
 *.bak
 *.phase1-backup
+.pytest_cache/
+__pycache__/
