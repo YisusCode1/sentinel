@@ -10,12 +10,12 @@ class OperationRequest(BaseModel):
     # La identidad se obtiene exclusivamente mediante X-API-Key.
     model_config = ConfigDict(extra="forbid")
 
-    policy_id: str = Field(min_length=1)
-    network: str = Field(min_length=1)
-    operation: str = Field(min_length=1)
-    token: str = Field(min_length=1)
-    amount: Decimal = Field(gt=0)
-    recipient: str = Field(min_length=1)
+    policy_id: str = Field(min_length=1, max_length=36)
+    network: str = Field(min_length=1, max_length=100)
+    operation: str = Field(min_length=1, max_length=100)
+    token: str = Field(min_length=1, max_length=50)
+    amount: Decimal = Field(gt=0, max_digits=20, decimal_places=8)
+    recipient: str = Field(min_length=1, max_length=255)
 
 
 class AIAnalysisResponse(BaseModel):
@@ -62,3 +62,4 @@ class OperationRecordResponse(BaseModel):
     reason: str
 
     created_at: datetime
+    ai_analysis: AIAnalysisResponse | None = None   # nuevo

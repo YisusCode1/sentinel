@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
+    Index,
     JSON,
     Numeric,
     String,
@@ -180,6 +181,7 @@ class OperationRecord(Base):
             name="fk_operations_policy_agent",
             ondelete="RESTRICT",
         ),
+        Index("ix_operations_agent_created", "agent_id", "created_at"),
     )
 
     id: Mapped[str] = mapped_column(
@@ -236,6 +238,11 @@ class OperationRecord(Base):
     reason: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
+    )
+    
+    ai_analysis: Mapped[dict | None] = mapped_column(
+        JSON(none_as_null=True),
+        nullable=True,
     )
 
     created_at: Mapped[datetime] = mapped_column(

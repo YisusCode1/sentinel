@@ -24,3 +24,7 @@ broadcast/
 # Environment
 .env.*
 !.env.example
+
+backups/
+*.bak
+*.phase1-backup
