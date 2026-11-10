@@ -48,8 +48,8 @@ export default function PolicyCreator({
     const allowed_recipients = parseList(form.recipients);
     const allowed_operations = parseList(form.operations);
 
-    if (!name || name.length > 256) {
-      setError("El nombre de la política es obligatorio y debe tener entre 1 y 256 caracteres.");
+    if (!name || name.length < 3 || name.length > 100) {
+      setError("El nombre de la política es obligatorio y debe tener entre 3 y 100 caracteres.");
       return;
     }
     if (!isPositiveAmount(max_amount)) {

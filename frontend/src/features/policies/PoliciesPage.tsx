@@ -319,7 +319,7 @@ export default function PoliciesPage({
                         </div>
                       </td>
                       <td>
-                        <time dateTime={p.created_at}>{displayDate(p.created_at)}</time>
+                        {p.created_at ? <time dateTime={p.created_at}>{displayDate(p.created_at)}</time> : <span>Activa</span>}
                       </td>
                       <td className="policy-actions-cell">
                         <div className="policy-actions-group">
@@ -398,7 +398,7 @@ export default function PoliciesPage({
               <div>
                 <dt>Fecha de registro · UTC</dt>
                 <dd>
-                  <time dateTime={selectedPolicy.created_at}>{displayDate(selectedPolicy.created_at)}</time>
+                  {selectedPolicy.created_at ? <time dateTime={selectedPolicy.created_at}>{displayDate(selectedPolicy.created_at)}</time> : <span>Activa</span>}
                 </dd>
               </div>
               <div>

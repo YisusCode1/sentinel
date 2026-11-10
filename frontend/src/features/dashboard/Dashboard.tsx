@@ -1,26 +1,25 @@
 import Card from '../../components/ui/Card';
-import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, Box, CheckCircle2, Key, Lock, Minus } from 'lucide-react';
+import Button from '../../components/ui/Button';
+import { Activity, AlertTriangle, Box, CheckCircle2, Key, Lock, Sparkles } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
+import { useEffect, useState } from 'react';
 import type { Tab } from '../../components/layout/navigation';
 import { connectionInfo } from '../../components/layout/navigation';
 import DashboardHero from './DashboardHero';
+import { apiRequest } from '../../lib/api';
+import type { OperationRecord, PolicyRecord } from '../operations/types';
+import { displayDate } from '../operations/utils';
+import { NearExplorerLink } from '../operations/OperationResult';
 
-const demoMetrics = [
-  { title: "Operaciones Analizadas", value: "12,480", change: "+12%", tone: "primary", icon: Box, direction: "up" },
-  { title: "Operaciones Seguras", value: "11,920", change: "+15%", tone: "success", icon: CheckCircle2, direction: "up" },
-  { title: "Alertas Críticas", value: "12", change: "−8%", tone: "critical", icon: AlertTriangle, direction: "down" },
-  { title: "Políticas Activas", value: "5", change: "0%", tone: "neutral", icon: Key, direction: "flat" },
-] as const;
+interface MetricItem {
+  title: string;
+  value: string;
+  description: string;
+  tone: 'primary' | 'success' | 'critical' | 'neutral';
+  icon: typeof Box;
+}
 
-const demoPolicies = [
-  "Bloqueo de transacciones sospechosas",
-  "Límites de monto por operación",
-  "Detección de anomalías con IA",
-  "Validación de contratos inteligentes",
-];
-
-function MetricCard({ title, value, change, tone, icon: Icon, direction }: (typeof demoMetrics)[number]) {
-  const TrendIcon = direction === "down" ? ArrowDownRight : direction === "up" ? ArrowUpRight : Minus;
+function MetricCard({ title, value, description, tone, icon: Icon }: MetricItem) {
   return (
     <Card as="article" className="metric-card" aria-label={title}>
       <div className="metric-heading">
@@ -29,88 +28,320 @@ function MetricCard({ title, value, change, tone, icon: Icon, direction }: (type
       </div>
       <p className="metric-value numeric">{value}</p>
       <div className="metric-comparison">
-        <span className={`metric-change ${direction === "flat" ? "neutral" : ""}`}>
-          <TrendIcon size={14} aria-hidden="true" /><span className="numeric">{change}</span>
-        </span>
-        <span>vs. período anterior</span>
+        <span className="text-xs text-slate-400">{description}</span>
       </div>
     </Card>
   );
 }
 
-function RecentAlerts() {
-  return (
-    <>
-      <div className="alert-item critical">
-        <div className="alert-row"><p><strong>Operación de alto riesgo detectada</strong></p><span className="badge-pill crit">Crítica</span></div>
-        <small>Hace <span className="numeric">2</span> min · Riesgo: <span className="numeric">92%</span></small>
-      </div>
-      <div className="alert-item warning">
-        <div className="alert-row"><p><strong>Patrón inusual en contratos</strong></p><span className="badge-pill warn">Advertencia</span></div>
-        <small>Hace <span className="numeric">5</span> min · Riesgo: <span className="numeric">68%</span></small>
-      </div>
-      <div className="alert-item info">
-        <div className="alert-row"><p><strong>Política actualizada</strong></p><span className="badge-pill inf">Info</span></div>
-        <small>Hace <span className="numeric">10</span> min · Nueva regla de seguridad</small>
-      </div>
-    </>
-  );
-}
-
-
 export default function Dashboard({ backendStatus, onNavigate }: { backendStatus: string; onNavigate: (tab: Tab) => void }) {
   const reduceMotion = useReducedMotion();
   const isOnline = backendStatus === 'healthy';
   const connectionClass = connectionInfo(backendStatus).tone;
+
+  const [operations, setOperations] = useState<OperationRecord[] | null>(null);
+  const [policies, setPolicies] = useState<PolicyRecord[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [populating, setPopulating] = useState(false);
+
+  useEffect(() => {
+    if (!isOnline) return;
+    const controller = new AbortController();
+    // oxlint-disable-next-line react/set-state-in-effect -- Reset pending state when querying backend data
+    setLoading(true);
+
+    Promise.allSettled([
+      apiRequest<OperationRecord[]>('/operations?limit=100', { signal: controller.signal }),
+      apiRequest<PolicyRecord[]>('/policies', { signal: controller.signal }),
+    ]).then(([opsResult, polsResult]) => {
+      if (controller.signal.aborted) return;
+      if (opsResult.status === 'fulfilled' && Array.isArray(opsResult.value)) {
+        setOperations(opsResult.value);
+      } else {
+        setOperations(null);
+      }
+      if (polsResult.status === 'fulfilled' && Array.isArray(polsResult.value)) {
+        setPolicies(polsResult.value);
+      } else {
+        setPolicies(null);
+      }
+    }).finally(() => {
+      if (!controller.signal.aborted) setLoading(false);
+    });
+
+    return () => controller.abort();
+  }, [isOnline]);
+
+  async function populateDemoTelemetry() {
+    if (!isOnline || populating) return;
+    setPopulating(true);
+    try {
+      let polId = policies?.[0]?.id;
+      if (!polId) {
+        const pol = await apiRequest<PolicyRecord>('/policies', {
+          method: 'POST',
+          body: JSON.stringify({
+            name: 'Tesorería Corporativa NEAR',
+            max_amount: '100.00',
+            allowed_tokens: ['USDC', 'USDT', 'NEAR'],
+            allowed_recipients: ['tesoreria.testnet', 'proveedor-autorizado.testnet'],
+            allowed_operations: ['transfer', 'swap'],
+          }),
+        });
+        polId = pol.id;
+      }
+
+      // Evaluar 3 operaciones de muestra representativas
+      await apiRequest('/operations/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({
+          policy_id: polId,
+          network: 'near-testnet',
+          operation: 'transfer',
+          token: 'USDC',
+          amount: '25.00',
+          recipient: 'tesoreria.testnet',
+        }),
+      });
+
+      await apiRequest('/operations/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({
+          policy_id: polId,
+          network: 'near-testnet',
+          operation: 'transfer',
+          token: 'USDC',
+          amount: '850.00',
+          recipient: 'tesoreria.testnet',
+        }),
+      });
+
+      await apiRequest('/operations/evaluate', {
+        method: 'POST',
+        body: JSON.stringify({
+          policy_id: polId,
+          network: 'near-testnet',
+          operation: 'transfer',
+          token: 'USDC',
+          amount: '15.00',
+          recipient: 'drainer-malicious.testnet',
+        }),
+      });
+
+      const [ops, pols] = await Promise.all([
+        apiRequest<OperationRecord[]>('/operations?limit=100'),
+        apiRequest<PolicyRecord[]>('/policies'),
+      ]);
+      setOperations(ops);
+      setPolicies(pols);
+    } catch {
+      // Ignorar fallos de red silenciosos en demo
+    } finally {
+      setPopulating(false);
+    }
+  }
+
+  const totalOps = operations !== null ? operations.length : null;
+  const safeOps = operations !== null ? operations.filter((op) => op.decision === 'approved').length : null;
+  const alertOps = operations !== null ? operations.filter((op) => op.decision === 'rejected').length : null;
+  const activePols = policies !== null ? policies.length : null;
+
+  const metrics: MetricItem[] = [
+    {
+      title: 'Operaciones Evaluadas',
+      value: totalOps !== null ? totalOps.toLocaleString('en-US') : (loading ? '…' : '—'),
+      description: totalOps !== null ? 'Evaluadas por Policy Engine' : 'Información no disponible',
+      tone: 'primary',
+      icon: Box,
+    },
+    {
+      title: 'Operaciones Aprobadas',
+      value: safeOps !== null ? safeOps.toLocaleString('en-US') : (loading ? '…' : '—'),
+      description: safeOps !== null ? 'Cumplieron con la política' : 'Información no disponible',
+      tone: 'success',
+      icon: CheckCircle2,
+    },
+    {
+      title: 'Alertas por Rechazo',
+      value: alertOps !== null ? alertOps.toLocaleString('en-US') : (loading ? '…' : '—'),
+      description: alertOps !== null ? 'Incumplieron reglas de política' : 'Información no disponible',
+      tone: 'critical',
+      icon: AlertTriangle,
+    },
+    {
+      title: 'Políticas Registradas',
+      value: activePols !== null ? activePols.toLocaleString('en-US') : (loading ? '…' : '—'),
+      description: activePols !== null ? 'Reglas autoritativas activas' : 'Información no disponible',
+      tone: 'neutral',
+      icon: Key,
+    },
+  ];
+
+  const recentRejected = operations ? operations.filter((op) => op.decision === 'rejected').slice(0, 3) : [];
+  const displayPolicies = policies ? policies.slice(0, 4) : [];
+
   return (
     <motion.div initial={reduceMotion ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
       {/* 1. Presentación y bienvenida: Inteligencia Preventiva para contextualizar al usuario */}
       <DashboardHero onNavigate={onNavigate} />
 
       {/* 2. Indicadores clave de supervisión (KPIs) */}
-      <div className="section-heading">
-        <h2 id="metrics-heading">Indicadores clave de supervisión (KPIs)</h2>
-        <span className="demo-label">Vista en tiempo real · Métricas operativas</span>
+      <div className="section-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2 id="metrics-heading">Indicadores clave de supervisión (KPIs)</h2>
+          <span className="demo-label">Datos en tiempo real · Servidor Sentinel</span>
+        </div>
+        {isOnline && totalOps === 0 && (
+          <Button variant="secondary" onClick={populateDemoTelemetry} loading={populating} loadingLabel="Poblando telemetría…">
+            <Sparkles size={14} className="text-cyan-400" />
+            Cargar telemetría demo para jurado
+          </Button>
+        )}
       </div>
       <section className="metrics-grid" aria-labelledby="metrics-heading">
-        {demoMetrics.map((metric) => <MetricCard key={metric.title} {...metric} />)}
+        {metrics.map((metric) => <MetricCard key={metric.title} {...metric} />)}
       </section>
 
       <div className="grid-split">
         <Card className="card" aria-labelledby="activity-heading">
-          <div className="chart-header-flex"><h3 id="activity-heading">Actividad reciente</h3><span className="demo-label">Muestra de actividad · UTC</span></div>
-          <div className="chart-legend"><span><i className="legend-line" />Total</span><span><i className="legend-line risk" />Riesgo</span></div>
-          <div className="chart-wrapper">
-            <div className="y-axis-labels numeric" aria-hidden="true"><span>1,000</span><span>750</span><span>500</span><span>250</span><span>0</span></div>
-            <svg className="svg-chart" viewBox="0 0 500 120" preserveAspectRatio="none" role="img" aria-label="Actividad ilustrativa entre las 04:00 y las 05:00 UTC: el total aumenta y la actividad de riesgo se mantiene por debajo.">
-              {[0, 30, 60, 90, 120].map((y) => <line key={y} x1="0" x2="500" y1={y} y2={y} className="chart-grid" />)}
-              <path d="M 0,65 Q 50,75 100,50 T 200,45 T 300,55 T 400,30 T 500,35 L 500,120 L 0,120 Z" fill="var(--azul-marca)" fillOpacity="0.08" />
-              <path d="M 0,90 Q 60,85 120,95 T 240,88 T 360,92 T 440,85 T 500,90" fill="none" stroke="var(--amarillo-alerta)" strokeWidth="2" strokeDasharray="5 4" vectorEffect="non-scaling-stroke" />
-              <path d="M 0,65 Q 50,75 100,50 T 200,45 T 300,55 T 400,30 T 500,35" fill="none" stroke="var(--azul-marca)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-            </svg>
+          <div className="chart-header-flex">
+            <h3 id="activity-heading">Actividad reciente</h3>
+            <span className="demo-label">Registro de operaciones persistidas</span>
           </div>
-          <div className="chart-axis-labels numeric"><span>04:00</span><span>04:15</span><span>04:30</span><span>04:45</span><span>05:00</span></div>
+          {operations && operations.length > 0 ? (
+            <div>
+              <div className="chart-legend">
+                <span><i className="legend-line" />Total ({operations.length})</span>
+                <span><i className="legend-line risk" />Rechazos ({recentRejected.length})</span>
+              </div>
+              <div className="chart-wrapper">
+                <svg className="svg-chart" viewBox="0 0 500 120" preserveAspectRatio="none" role="img" aria-label="Línea de evaluaciones">
+                  {[0, 30, 60, 90, 120].map((y) => <line key={y} x1="0" x2="500" y1={y} y2={y} className="chart-grid" />)}
+                  <path d="M 0,80 Q 80,60 160,70 T 320,50 T 500,40 L 500,120 L 0,120 Z" fill="var(--azul-marca)" fillOpacity="0.08" />
+                  <path d="M 0,80 Q 80,60 160,70 T 320,50 T 500,40" fill="none" stroke="var(--azul-marca)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                </svg>
+              </div>
+              <div className="chart-axis-labels numeric text-xs text-slate-400 mt-2">
+                <span>Últimas operaciones procesadas</span>
+                <span>UTC</span>
+              </div>
+            </div>
+          ) : (
+            <div className="ops-empty py-8 text-center">
+              <Activity size={24} className="mx-auto mb-2 text-slate-500" />
+              <p className="text-sm text-slate-400">
+                {isOnline ? 'Aún no hay operaciones evaluadas en la base de datos.' : 'Información no disponible. Backend desconectado.'}
+              </p>
+              {isOnline && (
+                <button type="button" className="link-text text-xs mt-2" onClick={populateDemoTelemetry} disabled={populating}>
+                  <Sparkles size={13} /> Cargar telemetría demo (1 clic)
+                </button>
+              )}
+            </div>
+          )}
         </Card>
+
         <Card className="card" aria-labelledby="system-heading">
           <div className="card-header-row"><h3 id="system-heading">Estado del sistema</h3><Activity size={17} aria-hidden="true" /></div>
-          <div className="availability"><div><p className="numeric">99.9%</p><p className="availability-label">Disponibilidad ilustrativa</p></div><span className="badge-pill inf">Demo</span></div>
+          <div className="availability">
+            <div>
+              <p className="numeric">{isOnline ? 'Operativo' : 'Inactivo'}</p>
+              <p className="availability-label">Estado de infraestructura</p>
+            </div>
+            <span className={`badge-pill ${isOnline ? 'succ' : 'warn'}`}>{isOnline ? 'En línea' : 'Desconectado'}</span>
+          </div>
           <ul className="service-list">
-            <li><span>Backend FastAPI</span><strong className={connectionClass}>{isOnline ? "Conectado" : backendStatus === "checking" ? "Verificando" : "Sin conexión"}</strong></li>
-            {["Base de datos", "Conexión NEAR", "Gemini AI"].map((service) => <li key={service}><span>{service}</span><strong>Sin verificar</strong></li>)}
+            <li>
+              <span>Backend FastAPI</span>
+              <strong className={connectionClass}>{isOnline ? 'Conectado' : backendStatus === 'checking' ? 'Verificando' : 'Sin conexión'}</strong>
+            </li>
+            <li>
+              <span>Policy Engine</span>
+              <strong className="text-cyan-400">Autoritativo (Activo)</strong>
+            </li>
+            <li>
+              <span>Gemini AI Engine</span>
+              <strong className="text-cyan-400">Asesor de Riesgo</strong>
+            </li>
+            <li>
+              <span>Autenticación</span>
+              <strong className="text-slate-300">X-API-Key</strong>
+            </li>
           </ul>
         </Card>
       </div>
+
       <div className="grid-split">
         <Card className="card" aria-labelledby="policies-heading">
-          <div className="card-header-row"><h3 id="policies-heading"><Lock size={17} aria-hidden="true" />Políticas de seguridad</h3><button className="link-text" onClick={() => onNavigate("policies")}>Ver todas →</button></div>
-          <p className="demo-label">Controles de demostración · Cambios locales</p>
-          <ul className="policy-list-mini">
-            {demoPolicies.map((name) => <li key={name}><span>{name}</span><label className="switch"><input type="checkbox" defaultChecked aria-label={name} /><span className="slider" /></label></li>)}
-          </ul>
+          <div className="card-header-row">
+            <h3 id="policies-heading"><Lock size={17} aria-hidden="true" />Políticas de seguridad</h3>
+            <button className="link-text" onClick={() => onNavigate('policies')}>Ver todas →</button>
+          </div>
+          <p className="demo-label">Reglas persistidas en el servidor</p>
+          {displayPolicies.length > 0 ? (
+            <ul className="policy-list-mini">
+              {displayPolicies.map((p) => (
+                <li key={p.id}>
+                  <div>
+                    <span className="font-medium text-slate-200">{p.name}</span>
+                    <small className="block text-xs text-slate-400">
+                      Límite: <strong className="numeric">{p.max_amount}</strong> · {p.allowed_tokens.join(', ')}
+                    </small>
+                  </div>
+                  <span className="badge-pill succ">Activa</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="ops-empty py-6 text-center">
+              <p className="text-sm text-slate-400">
+                {isOnline ? 'No hay políticas configuradas en la base de datos.' : 'Información no disponible.'}
+              </p>
+              {isOnline && (
+                <button type="button" className="link-text text-xs mt-2" onClick={() => onNavigate('policies')}>
+                  + Crear primera política
+                </button>
+              )}
+            </div>
+          )}
         </Card>
+
         <Card className="card" aria-labelledby="alerts-heading">
-          <div className="card-header-row"><h3 id="alerts-heading"><AlertTriangle size={17} aria-hidden="true" />Últimas alertas</h3><button className="link-text" onClick={() => onNavigate("alerts")}>Ver todas →</button></div>
-          <RecentAlerts />
+          <div className="card-header-row">
+            <h3 id="alerts-heading"><AlertTriangle size={17} aria-hidden="true" />Últimas alertas</h3>
+            <button className="link-text" onClick={() => onNavigate('alerts')}>Ver todas →</button>
+          </div>
+          {recentRejected.length > 0 ? (
+            recentRejected.map((alert) => (
+              <div className="alert-item critical" key={alert.id || alert.operation_id}>
+                <div className="alert-row">
+                  <p><strong>{alert.reason}</strong></p>
+                  <span className="badge-pill crit">Rechazada</span>
+                </div>
+                <small style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <span>{displayDate(alert.created_at)}</span>
+                  <span>·</span>
+                  <span className="numeric">{alert.amount} {alert.token}</span>
+                  <span>·</span>
+                  <NearExplorerLink address={alert.recipient} />
+                  {alert.ai_analysis && alert.ai_analysis.risk_level !== 'unknown' && (
+                    <>
+                      <span>·</span>
+                      <span className="badge-pill warn" style={{ fontSize: '0.68rem', padding: '1px 5px' }}>
+                        Riesgo IA: {alert.ai_analysis.risk_score}/100
+                      </span>
+                    </>
+                  )}
+                </small>
+              </div>
+            ))
+          ) : (
+            <div className="ops-empty py-6 text-center">
+              <p className="text-sm text-slate-400">
+                {isOnline ? 'No hay alertas por rechazo registradas.' : 'Información no disponible.'}
+              </p>
+            </div>
+          )}
         </Card>
       </div>
 

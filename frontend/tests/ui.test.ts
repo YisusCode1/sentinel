@@ -27,12 +27,26 @@ before(async () => {
 });
 
 const record = {
-  operation_id: 'op-test', agent_id: 'agent.testnet', policy_id: 'policy-test',
-  network: 'near-testnet', operation: 'transfer', token: 'USDC', amount: '42', recipient: 'treasury.testnet',
-  created_at: '2026-11-06T12:00:00Z', decision: 'approved', reason: 'Dentro de los limites', policy_name: 'Treasury',
-  policy_snapshot: { id: 'policy-test', name: 'Treasury', max_amount: '100', allowed_tokens: ['USDC'], allowed_operations: ['transfer'], allowed_recipients: ['treasury.testnet'], created_at: '2026-11-06T12:00:00Z' },
-  checks: [], risk_score: null, risk_analysis_status: 'unavailable', requires_signature: null,
-  verification_status: 'not_performed', execution_status: 'not_submitted',
+  id: 'op-test',
+  operation_id: 'op-test',
+  agent_id: 'agent.testnet',
+  policy_id: 'policy-test',
+  network: 'near-testnet',
+  operation: 'transfer',
+  token: 'USDC',
+  amount: '42',
+  recipient: 'treasury.testnet',
+  created_at: '2026-11-06T12:00:00Z',
+  decision: 'approved',
+  reason: 'Dentro de los limites',
+  ai_analysis: {
+    risk_level: 'low',
+    risk_score: 15,
+    flags: [],
+    explanation: 'Operación evaluada como bajo riesgo',
+    evidence: [],
+    analysis_available: true,
+  },
 };
 
 test('Pending and failed results never display a previous approval', () => {
@@ -52,7 +66,7 @@ test('Results keep rejected decisions distinct and use unique accessible heading
     createElement(OperationResult, { record, pending: false, error: '' }),
   ));
   assert.match(html, /Rechazada por pol/);
-  assert.match(html, /verification|Verificaci/);
+  assert.match(html, /Verificar|Asesor de Riesgo/);
   const headingIds = [...html.matchAll(/<h3 id="([^"]+)"/g)].map(match => match[1]);
   assert.equal(headingIds.length, 2);
   assert.equal(new Set(headingIds).size, 2);

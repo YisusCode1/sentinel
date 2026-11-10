@@ -36,6 +36,7 @@ test("alert indicators derive strictly from server total and summary, never visi
   const pageResponse: OperationPage = {
     items: [
       {
+        id: "op-1",
         operation_id: "op-1",
         created_at: "2026-11-04T12:00:00Z",
         agent_id: "agent-1",
@@ -47,27 +48,10 @@ test("alert indicators derive strictly from server total and summary, never visi
         recipient: "treasury.testnet",
         decision: "rejected",
         reason: "No cumple: Límite de monto.",
-        policy_name: "Tesorería",
-        policy_snapshot: {
-          id: "policy-1",
-          created_at: "2026-11-04T11:00:00Z",
-          name: "Tesorería",
-          max_amount: "100",
-          allowed_tokens: ["USDC"],
-          allowed_recipients: ["treasury.testnet"],
-          allowed_operations: ["transfer"],
-        },
-        checks: [
-          { code: "amount", label: "Límite de monto", passed: false, detail: "Monto: 150. Máximo: 100." },
-          { code: "token", label: "Token permitido", passed: true, detail: "Token solicitado: USDC." },
-        ],
-        risk_score: null,
-        risk_analysis_status: "unavailable",
-        requires_signature: null,
-        verification_status: "not_performed",
-        execution_status: "not_submitted",
+        ai_analysis: null,
       },
       {
+        id: "op-2",
         operation_id: "op-2",
         created_at: "2026-11-04T12:05:00Z",
         agent_id: "agent-2",
@@ -79,25 +63,14 @@ test("alert indicators derive strictly from server total and summary, never visi
         recipient: "treasury.testnet",
         decision: "rejected",
         reason: "No cumple: Tipo de operación.",
-        policy_name: "Tesorería",
-        policy_snapshot: {
-          id: "policy-1",
-          created_at: "2026-11-04T11:00:00Z",
-          name: "Tesorería",
-          max_amount: "100",
-          allowed_tokens: ["USDC"],
-          allowed_recipients: ["treasury.testnet"],
-          allowed_operations: ["transfer"],
+        ai_analysis: {
+          risk_level: "medium",
+          risk_score: 55,
+          flags: ["unusual_pattern"],
+          explanation: "Riesgo medio detectado",
+          evidence: [],
+          analysis_available: true,
         },
-        checks: [
-          { code: "amount", label: "Límite de monto", passed: true, detail: "Monto: 50. Máximo: 100." },
-          { code: "operation", label: "Tipo de operación", passed: false, detail: "Operación solicitada: swap." },
-        ],
-        risk_score: null,
-        risk_analysis_status: "unavailable",
-        requires_signature: null,
-        verification_status: "not_performed",
-        execution_status: "not_submitted",
       },
     ],
     total: 50,
@@ -123,10 +96,11 @@ test("alert indicators derive strictly from server total and summary, never visi
 
 test("alert CSV export correctly preserves precision, quotes cells, and neutralizes injection", () => {
   const rejectedRecord: OperationRecord = {
+    id: "op-bad-formula",
     operation_id: "op-bad-formula",
     created_at: "2026-11-04T14:00:00Z",
     agent_id: "=CMD('calc')",
-    policy_id: "policy-safe",
+    policy_id: "Tesorería, Global",
     network: "near-testnet",
     operation: "transfer",
     token: "USDC",
@@ -134,24 +108,7 @@ test("alert CSV export correctly preserves precision, quotes cells, and neutrali
     recipient: "@malicious.testnet",
     decision: "rejected",
     reason: "No cumple: Límite de monto.",
-    policy_name: "Tesorería, Global",
-    policy_snapshot: {
-      id: "policy-safe",
-      created_at: "2026-11-04T10:00:00Z",
-      name: "Tesorería, Global",
-      max_amount: "100",
-      allowed_tokens: ["USDC"],
-      allowed_recipients: ["treasury.testnet"],
-      allowed_operations: ["transfer"],
-    },
-    checks: [
-      { code: "amount", label: "Límite de monto", passed: false, detail: "Excede límite de 100" },
-    ],
-    risk_score: null,
-    risk_analysis_status: "unavailable",
-    requires_signature: null,
-    verification_status: "not_performed",
-    execution_status: "not_submitted",
+    ai_analysis: null,
   };
 
   const csv = operationsCsv([rejectedRecord]);

@@ -8,32 +8,52 @@ export interface PolicyInput {
 
 export interface PolicyRecord extends PolicyInput {
   id: string;
-  created_at: string;
+  active?: boolean;
+  created_at?: string;
 }
 
 export interface OperationInput {
-  agent_id: string;
   policy_id: string;
-  network: "near-testnet";
+  network: string;
   operation: string;
   token: string;
   amount: string;
   recipient: string;
 }
 
-export interface OperationRecord extends OperationInput {
+export interface AIAnalysis {
+  risk_level: "low" | "medium" | "high" | "critical" | "unknown";
+  risk_score: number;
+  flags: string[];
+  explanation: string;
+  evidence: string[];
+  analysis_available: boolean;
+  model_used?: string | null;
+  latency_ms?: number | null;
+}
+
+export interface OperationDecision {
   operation_id: string;
-  created_at: string;
   decision: "approved" | "rejected";
   reason: string;
-  policy_name: string;
-  policy_snapshot: PolicyRecord;
-  checks: { code: string; label: string; passed: boolean; detail: string }[];
-  risk_score: number | null;
-  risk_analysis_status: "unavailable";
-  requires_signature: boolean | null;
-  verification_status: "not_performed";
-  execution_status: "not_submitted";
+  policy_id: string;
+  ai_analysis?: AIAnalysis | null;
+}
+
+export interface OperationRecord {
+  id: string;
+  operation_id?: string;
+  agent_id: string;
+  policy_id: string;
+  network: string;
+  operation: string;
+  token: string;
+  amount: string;
+  recipient: string;
+  decision: "approved" | "rejected";
+  reason: string;
+  created_at: string;
+  ai_analysis?: AIAnalysis | null;
 }
 
 export interface OperationPage {

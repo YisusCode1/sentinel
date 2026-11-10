@@ -17,7 +17,7 @@
 /* Diagrama Conceptual con espacio suficiente y sin solapamiento */
 .hero-diagram {
   position: relative;
-  width: 330px;
+  width: 360px;
   height: 220px;
   justify-self: center;
   align-self: center;
@@ -35,13 +35,13 @@
 .hero-orbit-outer {
   width: 250px;
   height: 250px;
-  border: 1px dashed rgba(34, 211, 238, 0.2);
+  border: 1px dashed rgba(34, 211, 238, 0.25);
 }
 
 .hero-orbit-inner {
   width: 175px;
   height: 175px;
-  border: 1px solid rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.18);
 }
 
 /* Recuadro Central Oficial Sentinel */
@@ -53,14 +53,14 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   width: 96px;
   height: 96px;
   transform: translate(-50%, -50%);
-  border: 1px solid rgba(34, 211, 238, 0.35);
-  border-radius: 22px;
-  background: radial-gradient(circle at 50% 30%, #152b42 0%, #0a1120 100%);
-  box-shadow: 0 0 24px rgba(34, 211, 238, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.25);
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  border-radius: 20px;
+  background: radial-gradient(circle at 50% 30%, #152d48 0%, #08111e 100%);
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.28), inset 0 1px 1px rgba(255, 255, 255, 0.25);
   color: var(--color-brand);
   z-index: 2;
   transition: transform 200ms ease, box-shadow 200ms ease;
@@ -68,20 +68,21 @@
 
 .hero-core:hover {
   transform: translate(-50%, -50%) scale(1.03);
-  box-shadow: 0 0 32px rgba(34, 211, 238, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.3);
+  box-shadow: 0 0 36px rgba(34, 211, 238, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
 .hero-core-logo {
   width: 44px;
   height: 44px;
   object-fit: contain;
-  filter: drop-shadow(0 0 8px rgba(34, 211, 238, 0.45));
+  filter: drop-shadow(0 0 10px rgba(34, 211, 238, 0.5));
 }
 
 .hero-core span {
   font: 600 11px var(--font-mono);
   letter-spacing: 0.18em;
-  color: var(--color-brand);
+  color: #38bdf8;
+  text-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
 }
 
 /* Carteles / Nodos orbitales con posición periférica sin solapamiento */
@@ -90,15 +91,15 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 11px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 6px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 8px;
-  background: rgba(15, 23, 42, 0.92);
+  background: rgba(15, 23, 42, 0.94);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   font: 500 13px var(--font-mono);
   color: #ffffff;
-  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.12);
   z-index: 3;
   transition: transform 160ms ease, border-color 160ms ease;
   white-space: nowrap;
@@ -106,7 +107,7 @@
 
 .hero-node:hover {
   transform: translateY(-2px);
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.35);
 }
 
 .hero-node svg {
@@ -114,9 +115,10 @@
 }
 
 .hero-node-input {
-  top: 14px;
-  left: 6px;
-  border-color: rgba(34, 211, 238, 0.3);
+  top: 12px;
+  left: 2px;
+  border-color: rgba(34, 211, 238, 0.4);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(34, 211, 238, 0.15);
 }
 
 .hero-node-input svg {
@@ -124,9 +126,10 @@
 }
 
 .hero-node-ai {
-  top: 24px;
-  right: 6px;
-  border-color: rgba(167, 139, 250, 0.3);
+  top: 12px;
+  right: 2px;
+  border-color: rgba(167, 139, 250, 0.45);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(167, 139, 250, 0.18);
 }
 
 .hero-node-ai svg {
@@ -135,8 +138,9 @@
 
 .hero-node-policy {
   bottom: 22px;
-  left: 14px;
-  border-color: rgba(56, 189, 248, 0.3);
+  left: 8px;
+  border-color: rgba(56, 189, 248, 0.4);
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.6), 0 0 12px rgba(56, 189, 248, 0.15);
 }
 
 .hero-node-policy svg {

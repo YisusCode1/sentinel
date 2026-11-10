@@ -49,14 +49,14 @@ export default function App() {
     return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
   }, []);
 
-  // Update navigation alerts count: query GET /operations?decision=rejected&page_size=1
+  // Update navigation alerts count: query GET /operations?decision=rejected&limit=100
   useEffect(() => {
     const controller = new AbortController();
-    apiRequest<{ total: number }>("/operations?decision=rejected&page_size=1", {
+    apiRequest<OperationRecord[]>("/operations?decision=rejected&limit=100", {
       signal: controller.signal,
     })
       .then((data) => {
-        setAlertsCountState({ count: data.total, loading: false, error: false });
+        setAlertsCountState({ count: Array.isArray(data) ? data.length : 0, loading: false, error: false });
       })
       .catch((_err) => {
         if (!controller.signal.aborted) {

@@ -22,16 +22,33 @@ test("query safely encodes identifiers and excludes empty filters", () => {
 });
 
 test("CSV preserves quoted text and decimal precision and neutralizes formulas", () => {
-  const item = {
-    operation_id: "op-test", created_at: "2026-11-04T10:00:00+00:00", agent_id: '=HYPERLINK("bad")',
-    policy_name: 'Treasury, "primary"', network: "near-testnet", operation: "transfer", token: "USDC",
-    amount: "0.000000000000000000000001", recipient: "+formula", decision: "approved", reason: "Aceptada\nsegún política", risk_score: null,
-  } as OperationRecord;
+  const item: OperationRecord = {
+    id: "op-test",
+    operation_id: "op-test",
+    created_at: "2026-11-04T10:00:00+00:00",
+    agent_id: '=HYPERLINK("bad")',
+    policy_id: 'Treasury, "primary"',
+    network: "near-testnet",
+    operation: "transfer",
+    token: "USDC",
+    amount: "0.000000000000000000000001",
+    recipient: "+formula",
+    decision: "approved",
+    reason: "Aceptada\nsegún política",
+    ai_analysis: {
+      risk_level: "low",
+      risk_score: 12,
+      flags: [],
+      explanation: "Operación de bajo riesgo",
+      evidence: [],
+      analysis_available: true,
+    },
+  };
   const csv = operationsCsv([item]);
   assert.ok(csv.startsWith("\uFEFF"));
   assert.ok(csv.includes('"\'=HYPERLINK(""bad"")"'));
   assert.ok(csv.includes('"\'+formula"'));
   assert.ok(csv.includes('"Treasury, ""primary"""'));
   assert.ok(csv.includes('"0.000000000000000000000001"'));
-  assert.ok(csv.includes('"No disponible"'));
+  assert.ok(csv.includes('"12 (low)"'));
 });

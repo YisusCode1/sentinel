@@ -9,7 +9,6 @@ import {
   ArrowRight,
   ChevronLeft,
   ChevronRight,
-  CircleSlash,
   Download,
   Filter,
   RefreshCw,
@@ -17,8 +16,8 @@ import {
   ShieldAlert,
 } from "lucide-react";
 import { apiRequest } from "../../lib/api";
-import OperationResult, { DecisionBadge } from "../operations/OperationResult";
-import { alertsQuery, displayDate, operationsCsv } from "../operations/utils";
+import OperationResult, { DecisionBadge, NearExplorerLink } from "../operations/OperationResult";
+import { displayDate, operationsCsv } from "../operations/utils";
 import type { OperationPage, OperationRecord } from "../operations/types";
 import "./alerts.css";
 
@@ -67,9 +66,47 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
     setError("");
     setData(null);
 
-    const query = alertsQuery(filters, page, pageSize);
-    apiRequest<OperationPage>(`/operations?${query}`, { signal: controller.signal })
-      .then(setData)
+    const endpoint = `/operations?decision=rejected&limit=200`;
+    apiRequest<OperationRecord[]>(endpoint, { signal: controller.signal })
+      .then((rawList) => {
+        const list = Array.isArray(rawList) ? rawList : [];
+        const q = filters.q.trim().toLowerCase();
+        const filtered = list.filter((item) => {
+          if (q) {
+            const matchesId = (item.id || item.operation_id || "").toLowerCase().includes(q);
+            const matchesAgent = (item.agent_id || "").toLowerCase().includes(q);
+            const matchesRecipient = (item.recipient || "").toLowerCase().includes(q);
+            const matchesToken = (item.token || "").toLowerCase().includes(q);
+            const matchesOp = (item.operation || "").toLowerCase().includes(q);
+            if (!matchesId && !matchesAgent && !matchesRecipient && !matchesToken && !matchesOp) return false;
+          }
+          if (filters.date_from) {
+            const itemDate = item.created_at.slice(0, 10);
+            if (itemDate < filters.date_from) return false;
+          }
+          if (filters.date_to) {
+            const itemDate = item.created_at.slice(0, 10);
+            if (itemDate > filters.date_to) return false;
+          }
+          return true;
+        });
+
+        const total = filtered.length;
+        const startIndex = (page - 1) * pageSize;
+        const paginatedItems = filtered.slice(startIndex, startIndex + pageSize);
+
+        setData({
+          items: paginatedItems,
+          total,
+          page,
+          page_size: pageSize,
+          summary: {
+            total: list.length,
+            approved: 0,
+            rejected: list.length,
+          },
+        });
+      })
       .catch((err) => {
         if (!controller.signal.aborted) {
           setError(errorMessage(err));
@@ -160,7 +197,7 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
         ariaLabel="Aviso institucional sobre rechazos de política"
       >
         <p>
-          Esta vista reúne todas las solicitudes que no cumplieron las condiciones definidas en su respectiva política. Un rechazo por política no demuestra la existencia de fraude, vulnerabilidad crítica ni el bloqueo de transacciones en una red blockchain.
+          Esta vista reúne todas las solicitudes que no cumplieron las condiciones definidas en su respectiva política. Las decisiones de rechazo son determinadas exclusivamente por el Policy Engine autoritativo del backend.
         </p>
       </CollapsibleBanner>
 
@@ -180,12 +217,12 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
           <small>Página {page} de {pages}</small>
         </article>
         <article className="metric-card alerts-summary system">
-          <h3 className="metric-title">Análisis de riesgo IA</h3>
-          <div className="metric-value" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "1.4rem" }}>
-            <CircleSlash size={22} aria-hidden="true" />
-            <span>No disponible</span>
+          <h3 className="metric-title">Asesor de riesgo IA</h3>
+          <div className="metric-value" style={{ display: "flex", alignItems: "center", gap: 8, fontSize: "1.2rem" }}>
+            <ShieldAlert size={20} style={{ color: "var(--azul-marca, #06b6d4)" }} aria-hidden="true" />
+            <span>Gemini AI</span>
           </div>
-          <small>Sin modelo IA ni firma on-chain</small>
+          <small>Asesor preventivo de riesgo · Política autoritativa</small>
         </article>
       </div>
 
@@ -220,7 +257,6 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
           <div className="ops-toolbar">
             <Button variant="secondary"
               type="button"
-
               onClick={() => setLocalRefresh((v) => v + 1)}
               disabled={loading}
             >
@@ -229,7 +265,6 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
             </Button>
             <Button variant="secondary"
               type="button"
-
               onClick={exportVisibleCsv}
               disabled={loading || !data?.items.length}
               title="Descarga un archivo CSV con las alertas visibles en esta página"
@@ -333,20 +368,21 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
                   <th scope="col">Fecha · UTC</th>
                   <th scope="col">Monto solicitado</th>
                   <th scope="col">Destinatario</th>
-                  <th scope="col">Política / controles fallidos</th>
+                  <th scope="col">Motivo de rechazo</th>
+                  <th scope="col">Riesgo IA</th>
                   <th scope="col">Decisión</th>
                   <th scope="col">Detalle</th>
                 </tr>
               </thead>
               <tbody>
                 {data.items.map((record) => {
-                  const failedChecks = record.checks.filter((c) => !c.passed);
-                  const isSelected = selectedRecord?.operation_id === record.operation_id;
+                  const recId = record.id || record.operation_id || "";
+                  const isSelected = (selectedRecord?.id || selectedRecord?.operation_id) === recId;
                   return (
-                    <tr key={record.operation_id} aria-selected={isSelected}>
+                    <tr key={recId} aria-selected={isSelected}>
                       <td>
-                        <span className="ops-table-id numeric" title={record.operation_id}>
-                          {record.operation_id.slice(0, 12)}…
+                        <span className="ops-table-id numeric" title={recId}>
+                          {recId.slice(0, 12)}…
                         </span>
                         <small className="contract-address">{record.agent_id}</small>
                       </td>
@@ -358,19 +394,21 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
                         <small>{record.token} · {record.operation}</small>
                       </td>
                       <td className="ops-recipient">
-                        <span className="contract-address">{record.recipient}</span>
+                        <NearExplorerLink address={record.recipient} />
                         <small>{record.network}</small>
                       </td>
                       <td>
-                        <strong>{record.policy_name}</strong>
-                        <div className="alerts-failed-checks">
-                          {failedChecks.map((fc) => (
-                            <span key={fc.code} className="failed-check-pill" title={fc.detail}>
-                              {fc.label}
-                            </span>
-                          ))}
-                        </div>
-                        <p className="alert-reason-text">{record.reason}</p>
+                        <p className="alert-reason-text" style={{ margin: 0, fontWeight: 500 }}>{record.reason}</p>
+                        <small className="contract-address" style={{ fontSize: "0.75rem", color: "#94a3b8" }}>Política: {record.policy_id.slice(-8)}</small>
+                      </td>
+                      <td>
+                        {record.ai_analysis && record.ai_analysis.risk_level !== "unknown" ? (
+                          <span className={`badge-pill ${record.ai_analysis.risk_level === "low" ? "succ" : record.ai_analysis.risk_level === "medium" ? "warn" : "crit"}`}>
+                            {record.ai_analysis.risk_score}/100
+                          </span>
+                        ) : (
+                          <span className="badge-pill inf">N/A</span>
+                        )}
                       </td>
                       <td>
                         <DecisionBadge decision={record.decision} />
@@ -379,8 +417,8 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
                         <button
                           type="button"
                           className="ops-icon-button"
-                          onClick={() => openDetail(record.operation_id)}
-                          aria-label={`Ver detalle completo de alerta ${record.operation_id}`}
+                          onClick={() => openDetail(recId)}
+                          aria-label={`Ver detalle completo de alerta ${recId}`}
                         >
                           <ArrowRight size={18} />
                         </button>
@@ -421,8 +459,8 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
               <button
                 type="button"
                 className="ops-icon-button"
-                aria-label="Página anterior"
-                disabled={page <= 1 || loading}
+                aria-label="Página anterior de alertas"
+                disabled={page <= 1}
                 onClick={() => setPage(page - 1)}
               >
                 <ChevronLeft size={18} />
@@ -430,8 +468,8 @@ export default function AlertsPage({ active, onNavigateToPolicy, refreshSignal }
               <button
                 type="button"
                 className="ops-icon-button"
-                aria-label="Página siguiente"
-                disabled={page >= pages || loading}
+                aria-label="Página siguiente de alertas"
+                disabled={page >= pages}
                 onClick={() => setPage(page + 1)}
               >
                 <ChevronRight size={18} />
