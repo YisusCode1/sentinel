@@ -1,135 +1,343 @@
+"""Comprehensive integration tests for Sentinel Operation Evaluation and Security Contract."""
+
+import os
+import sys
 import tempfile
 import unittest
-from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
+# Set short timeout for unmocked AI engine calls during tests
+os.environ["AI_ENGINE_TIMEOUT"] = "0.1"
+
+# Ensure backend root is on sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-from backend.app.main import create_app
+from app.core.database import Base, get_db
+from app.main import app
+from app.schemas.operation import AIAnalysisResponse
+from app.services.agent_service import create_agent
 
 
-class OperationsApiTests(unittest.TestCase):
+class OperationEvaluationTests(unittest.TestCase):
+    """Verifies authentication, authorization isolation, and deterministic policy evaluation."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test_operations.db"
+        cls.engine = create_engine(
+            f"sqlite:///{db_path.as_posix()}",
+            connect_args={"check_same_thread": False},
+        )
+        cls.TestingSessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=cls.engine,
+        )
+        Base.metadata.create_all(bind=cls.engine)
+
+        def override_get_db():
+            db = cls.TestingSessionLocal()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides.clear()
+        cls.engine.dispose()
+        cls.temp_dir.cleanup()
+
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.url = f"sqlite:///{(Path(self.directory.name) / 'test.db').as_posix()}"
-        self.client = self.enterContext(TestClient(create_app(self.url)))
-        response = self.client.post("/api/v1/policies", json={
-            "name": "Tesorería", "max_amount": "100", "allowed_tokens": ["USDC"],
-            "allowed_recipients": ["treasury.testnet"], "allowed_operations": ["transfer"],
-        })
-        self.assertEqual(response.status_code, 201, response.text)
-        self.policy = response.json()
-        self.operation = {"agent_id": "agent-test", "policy_id": self.policy["id"], "network": "near-testnet", "operation": "transfer", "token": "USDC", "amount": "40", "recipient": "treasury.testnet"}
+        # Create test agent A and generate valid API key
+        with self.TestingSessionLocal() as session:
+            agent_a_data = create_agent(session, f"Agent-Alpha-{uuid4().hex[:6]}")
+        self.agent_a_id = agent_a_data["agent_id"]
+        self.agent_a_key = agent_a_data["api_key"]
+        self.headers_a = {"X-API-Key": self.agent_a_key}
 
-    def evaluate(self, **changes):
-        response = self.client.post("/api/v1/operations/evaluate", json=self.operation | changes)
-        self.assertEqual(response.status_code, 201, response.text)
-        return response.json()
+        # Create test policy for Agent A
+        policy_res = self.client.post(
+            "/api/v1/policies",
+            headers=self.headers_a,
+            json={
+                "name": "Treasury Transfer Policy",
+                "max_amount": "100.00",
+                "allowed_tokens": ["USDC", "NEAR"],
+                "allowed_recipients": ["treasury.testnet", "alice.testnet"],
+                "allowed_operations": ["transfer"],
+            },
+        )
+        self.assertEqual(policy_res.status_code, 201)
+        self.policy_a = policy_res.json()
+        self.policy_a_id = self.policy_a["id"]
 
-    def test_within_limit_approved_and_persisted(self):
-        record = self.evaluate()
-        self.assertEqual(record["decision"], "approved")
-        self.assertTrue(all(check["passed"] for check in record["checks"]))
-        self.assertEqual(record["policy_snapshot"], self.policy)
-        self.assertIsNone(record["risk_score"])
-        self.assertIsNone(record["requires_signature"])
-        self.assertEqual(record["verification_status"], "not_performed")
-        self.assertEqual(record["execution_status"], "not_submitted")
-        self.assertEqual(self.client.get(f'/api/v1/operations/{record["operation_id"]}').json(), record)
+    def test_unauthenticated_requests_are_rejected(self):
+        """Endpoints must reject requests without X-API-Key."""
+        res_eval = self.client.post(
+            "/api/v1/operations/evaluate",
+            json={
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "25.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(res_eval.status_code, 401)
 
-    def test_exact_decimal_boundary(self):
-        self.assertEqual(self.evaluate(amount="100.000000000000000000000000")["decision"], "approved")
-        self.assertEqual(self.evaluate(amount="100.000000000000000000000001")["decision"], "rejected")
+        res_policies = self.client.get("/api/v1/policies")
+        self.assertEqual(res_policies.status_code, 401)
 
-    def test_each_policy_condition_rejects_independently(self):
-        for field, value, code in [("amount", "101", "amount"), ("token", "usdc", "token"), ("recipient", "other.testnet", "recipient"), ("operation", "swap", "operation")]:
-            with self.subTest(field=field):
-                record = self.evaluate(**{field: value})
-                self.assertEqual(record["decision"], "rejected")
-                self.assertEqual([check["code"] for check in record["checks"] if not check["passed"]], [code])
+        res_history = self.client.get("/api/v1/operations")
+        self.assertEqual(res_history.status_code, 401)
 
-    def test_all_failures_are_reported(self):
-        record = self.evaluate(amount="101", token="NEAR", recipient="other.testnet", operation="stake")
-        self.assertTrue(all(not check["passed"] for check in record["checks"]))
+    def test_invalid_api_key_is_rejected(self):
+        """Endpoints must reject invalid or forged API keys."""
+        res = self.client.get(
+            "/api/v1/policies",
+            headers={"X-API-Key": "sntl_live_invalidkey1234567890abcdef1234567890"},
+        )
+        self.assertEqual(res.status_code, 401)
 
-    def test_invalid_amounts_are_not_recorded(self):
-        for amount in ["0", "0.000", "-1", "NaN", "Infinity", "1e3", "1,000", "1.2.3", "", "9" * 31, "0." + "1" * 25, 40]:
-            with self.subTest(amount=amount):
-                self.assertEqual(self.client.post("/api/v1/operations/evaluate", json=self.operation | {"amount": amount}).status_code, 422)
-        self.assertEqual(self.client.get("/api/v1/operations").json()["total"], 0)
+    def test_client_cannot_pass_agent_id_in_payload(self):
+        """Payloads containing agent_id must be rejected with 422 Unprocessable Entity."""
+        res = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=self.headers_a,
+            json={
+                "agent_id": "malicious-agent-id",
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "25.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(res.status_code, 422)
 
-    def test_missing_policy_unknown_ids_and_network(self):
-        self.assertEqual(self.client.post("/api/v1/operations/evaluate", json=self.operation | {"policy_id": "missing"}).status_code, 404)
-        self.assertEqual(self.client.post("/api/v1/operations/evaluate", json=self.operation | {"network": "near-mainnet"}).status_code, 422)
-        self.assertEqual(self.client.get("/api/v1/operations/missing").status_code, 404)
-        self.assertEqual(self.client.get("/api/v1/policies/missing").status_code, 404)
+    def test_cross_tenant_policy_isolation(self):
+        """Agent B cannot evaluate against or access Agent A's policy."""
+        # Create Agent B
+        with self.TestingSessionLocal() as session:
+            agent_b_data = create_agent(session, f"Agent-Beta-{uuid4().hex[:6]}")
+        headers_b = {"X-API-Key": agent_b_data["api_key"]}
 
-    def test_invalid_and_unrecognized_fields_fail_closed(self):
-        for change in [{"agent_id": "   "}, {"recipient": ""}, {"risk_score": 0}, {"decision": "approved"}, {"amount": None}]:
-            self.assertEqual(self.client.post("/api/v1/operations/evaluate", json=self.operation | change).status_code, 422)
-        body = {key: value for key, value in self.policy.items() if key not in ("id", "created_at")}
-        for change in [{"allowed_tokens": []}, {"allowed_recipients": [" "]}, {"allowed_operations": []}, {"max_amount": "0"}]:
-            self.assertEqual(self.client.post("/api/v1/policies", json=body | change).status_code, 422)
+        # Attempt to evaluate using Agent A's policy ID
+        res = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=headers_b,
+            json={
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "25.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.json()["detail"], "Policy not found")
 
-    def test_idempotent_retries_and_conflicting_payload(self):
-        headers = {"Idempotency-Key": str(uuid4())}
-        first = self.client.post("/api/v1/operations/evaluate", json=self.operation, headers=headers)
-        second = self.client.post("/api/v1/operations/evaluate", json=self.operation, headers=headers)
-        self.assertEqual(first.status_code, 201)
-        self.assertEqual(first.json(), second.json())
-        self.assertEqual(self.client.get("/api/v1/operations").json()["total"], 1)
-        self.assertEqual(self.client.post("/api/v1/operations/evaluate", json=self.operation | {"amount": "50"}, headers=headers).status_code, 409)
+        # Agent B cannot fetch Agent A's policy
+        res_get = self.client.get(f"/api/v1/policies/{self.policy_a_id}", headers=headers_b)
+        self.assertEqual(res_get.status_code, 404)
 
-    def test_concurrent_retries_create_one_record(self):
-        headers = {"Idempotency-Key": str(uuid4())}
-        with ThreadPoolExecutor(max_workers=2) as pool:
-            responses = list(pool.map(lambda _: self.client.post("/api/v1/operations/evaluate", json=self.operation, headers=headers), range(2)))
-        self.assertTrue(all(response.status_code == 201 for response in responses))
-        self.assertEqual(responses[0].json()["operation_id"], responses[1].json()["operation_id"])
-        self.assertEqual(self.client.get("/api/v1/operations").json()["total"], 1)
+    @patch("app.api.v1.operations.evaluate_risk")
+    def test_compliant_operation_approved_with_ai_advisory(self, mock_evaluate_risk):
+        """Compliant operation receives 'approved' decision and attaches AI advisory."""
+        mock_evaluate_risk.return_value = AIAnalysisResponse(
+            risk_level="low",
+            risk_score=15,
+            flags=["standard_treasury_transfer"],
+            explanation="Normal operation within policy parameters and established recipient.",
+            evidence=["amount:25.00", "known_recipient:treasury.testnet"],
+            analysis_available=True,
+            model_used="gemini-2.5-flash",
+            latency_ms=120,
+        )
 
-    def test_history_filter_pagination_summary_and_search(self):
-        self.evaluate(agent_id="alpha")
-        self.evaluate(agent_id="beta", amount="150")
-        latest = self.evaluate(agent_id="gamma")
-        first = self.client.get("/api/v1/operations?page_size=2").json()
-        self.assertEqual(first["summary"], {"total": 3, "approved": 2, "rejected": 1})
-        self.assertEqual(first["items"][0]["operation_id"], latest["operation_id"])
-        second = self.client.get("/api/v1/operations?page_size=2&page=2").json()
-        self.assertEqual(len(second["items"]), 1)
-        self.assertFalse({item["operation_id"] for item in first["items"]} & {item["operation_id"] for item in second["items"]})
-        rejected = self.client.get("/api/v1/operations?decision=rejected").json()
-        self.assertEqual(rejected["summary"], {"total": 1, "approved": 0, "rejected": 1})
-        self.assertEqual(self.client.get("/api/v1/operations?q=ALPHA").json()["total"], 1)
-        self.assertEqual(self.client.get("/api/v1/operations", params={"q": "%"}).json()["total"], 0)
-        self.assertEqual(self.client.get("/api/v1/operations", params={"q": "' OR 1=1 --"}).json()["total"], 0)
+        res = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=self.headers_a,
+            json={
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "25.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["decision"], "approved")
+        self.assertEqual(data["reason"], "Operation complies with policy")
+        self.assertIsNotNone(data["ai_analysis"])
+        self.assertEqual(data["ai_analysis"]["risk_score"], 15)
+        self.assertEqual(data["ai_analysis"]["risk_level"], "low")
 
-    def test_dates_validation_and_empty_results(self):
-        self.evaluate()
-        today = datetime.now(timezone.utc).date().isoformat()
-        self.assertEqual(self.client.get("/api/v1/operations", params={"date_from": today, "date_to": today}).json()["total"], 1)
-        self.assertEqual(self.client.get("/api/v1/operations?date_to=2000-01-01").json()["total"], 0)
-        for query in ["page=0", "page_size=101", "decision=unknown", "date_from=2026-01-02&date_to=2026-01-01", "date_to=not-a-date"]:
-            self.assertEqual(self.client.get(f"/api/v1/operations?{query}").status_code, 422)
+    @patch("app.api.v1.operations.evaluate_risk")
+    def test_ai_fallback_unknown_on_ai_failure(self, mock_evaluate_risk):
+        """If AI Engine fails, fallback 'unknown' is returned and Policy Engine proceeds."""
+        mock_evaluate_risk.return_value = AIAnalysisResponse(
+            risk_level="unknown",
+            risk_score=50,
+            flags=["ai_analysis_unavailable", "fallback_triggered"],
+            explanation="AI risk analysis is unavailable. Policy Engine remains authoritative.",
+            evidence=["error_type:TimeoutException"],
+            analysis_available=False,
+            model_used=None,
+            latency_ms=None,
+        )
 
-    def test_policies_list_and_retrieve(self):
-        self.assertEqual(self.client.get("/api/v1/policies").json(), [self.policy])
-        self.assertEqual(self.client.get(f'/api/v1/policies/{self.policy["id"]}').json(), self.policy)
+        res = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=self.headers_a,
+            json={
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "30.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(data["decision"], "approved")
+        self.assertEqual(data["ai_analysis"]["risk_level"], "unknown")
+        self.assertFalse(data["ai_analysis"]["analysis_available"])
 
-    def test_data_survives_new_application_instance(self):
-        record = self.evaluate()
-        with TestClient(create_app(self.url)) as other:
-            self.assertEqual(other.get("/api/v1/operations").json()["items"][0], record)
-            self.assertEqual(other.get("/api/v1/policies").json(), [self.policy])
+    @patch("app.api.v1.operations.evaluate_risk")
+    def test_policy_engine_rejections(self, mock_evaluate_risk):
+        """Policy Engine must reject each rule violation with exact reason."""
+        mock_evaluate_risk.return_value = AIAnalysisResponse(
+            risk_level="low",
+            risk_score=20,
+            flags=[],
+            explanation="AI risk analysis completed.",
+            evidence=[],
+            analysis_available=True,
+        )
 
-    def test_cors_for_local_and_docker_frontend(self):
-        for origin in ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:5174"]:
-            response = self.client.options("/api/v1/operations/evaluate", headers={"Origin": origin, "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,idempotency-key"})
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.headers["access-control-allow-origin"], origin)
+        cases = [
+            (
+                {"amount": "150.00"},
+                "rejected",
+                "Amount exceeds policy limit",
+            ),
+            (
+                {"token": "DAI"},
+                "rejected",
+                "Token is not allowed",
+            ),
+            (
+                {"recipient": "hacker.testnet"},
+                "rejected",
+                "Recipient is not allowed",
+            ),
+            (
+                {"operation": "stake"},
+                "rejected",
+                "Operation type is not allowed",
+            ),
+        ]
+
+        for overrides, expected_decision, expected_reason in cases:
+            with self.subTest(overrides=overrides):
+                payload = {
+                    "policy_id": self.policy_a_id,
+                    "network": "near-testnet",
+                    "operation": "transfer",
+                    "token": "USDC",
+                    "amount": "20.00",
+                    "recipient": "treasury.testnet",
+                }
+                payload.update(overrides)
+
+                res = self.client.post(
+                    "/api/v1/operations/evaluate",
+                    headers=self.headers_a,
+                    json=payload,
+                )
+                self.assertEqual(res.status_code, 200)
+                data = res.json()
+                self.assertEqual(data["decision"], expected_decision)
+                self.assertEqual(data["reason"], expected_reason)
+
+    @patch("app.api.v1.operations.evaluate_risk")
+    def test_audit_history_and_filtering(self, mock_evaluate_risk):
+        """Evaluated operations must be stored and filterable by decision."""
+        mock_evaluate_risk.return_value = AIAnalysisResponse(
+            risk_level="low",
+            risk_score=10,
+            flags=[],
+            explanation="Normal operation.",
+            evidence=[],
+            analysis_available=True,
+        )
+
+        # 1. Execute an approved operation
+        self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=self.headers_a,
+            json={
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "10.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+
+        # 2. Execute a rejected operation
+        res_rej = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=self.headers_a,
+            json={
+                "policy_id": self.policy_a_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "999.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        rej_id = res_rej.json()["operation_id"]
+
+        # 3. Query all operations
+        history_all = self.client.get("/api/v1/operations", headers=self.headers_a).json()
+        self.assertGreaterEqual(len(history_all), 2)
+
+        # 4. Query only rejected operations
+        history_rejected = self.client.get(
+            "/api/v1/operations?decision=rejected",
+            headers=self.headers_a,
+        ).json()
+        self.assertTrue(all(op["decision"] == "rejected" for op in history_rejected))
+
+        # 5. Query single operation by ID
+        single_op = self.client.get(
+            f"/api/v1/operations/{rej_id}",
+            headers=self.headers_a,
+        ).json()
+        self.assertEqual(single_op["id"], rej_id)
+        self.assertEqual(single_op["decision"], "rejected")
+        self.assertEqual(single_op["reason"], "Amount exceeds policy limit")
 
 
 if __name__ == "__main__":

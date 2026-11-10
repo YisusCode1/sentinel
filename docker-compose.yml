@@ -1,31 +1,5 @@
 services:
 
-  backend:
-    build:
-      context: ./backend
-    container_name: sentinel-backend
-    ports:
-      - "8001:8000"
-    volumes:
-      - ./backend:/app
-    environment:
-      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_password@db:5432/sentinel_db
-    depends_on:
-      db:
-        condition: service_healthy
-
-  frontend:
-    build:
-      context: ./frontend
-    container_name: sentinel-frontend
-    ports:
-      - "5174:5173"
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
-    depends_on:
-      - backend
-
   db:
     image: postgres:16-alpine
     container_name: sentinel-db
@@ -43,6 +17,67 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  ai-engine:
+    build:
+      context: ./ai-engine
+    container_name: sentinel-ai-engine
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./ai-engine:/app
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_TIMEOUT_SECONDS: 5.0
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-sentinel_secret_hackathon_2026}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8002/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    container_name: sentinel-backend
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_password@db:5432/sentinel_db
+      AI_ENGINE_URL: http://ai-engine:8002
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-sentinel_secret_hackathon_2026}
+      CORS_ORIGINS: http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174
+    depends_on:
+      db:
+        condition: service_healthy
+      ai-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: sentinel-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+    environment:
+      VITE_API_BASE_URL: http://localhost:8001
+    depends_on:
+      backend:
+        condition: service_healthy
 
 volumes:
   postgres_data:

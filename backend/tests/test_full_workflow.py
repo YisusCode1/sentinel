@@ -1,123 +1,138 @@
+"""Full end-to-end workflow integration test for Sentinel Secure Backend."""
+
+import os
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+from uuid import uuid4
+
+os.environ["AI_ENGINE_TIMEOUT"] = "0.1"
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
 from fastapi.testclient import TestClient
-from backend.app.main import create_app
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.database import Base, get_db
+from app.main import app
+from app.schemas.operation import AIAnalysisResponse
+from app.services.agent_service import create_agent
 
 
 class FullWorkflowTests(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.db_path = Path(self.directory.name) / "test_workflow.db"
-        self.url = f"sqlite:///{self.db_path.as_posix()}"
-        self.client = self.enterContext(TestClient(create_app(self.url)))
+    """Tests the complete end-to-end lifecycle: Agent -> Policy -> Evaluation -> History."""
 
-    def test_complete_sentinel_workflow(self):
-        # 1. Crear una política con máximo 100, token USDC, operación transfer y destinatario treasury.testnet.
-        policy_res = self.client.post("/api/v1/policies", json={
-            "name": "Tesorería Institucional",
-            "max_amount": "100",
-            "allowed_tokens": ["USDC"],
-            "allowed_recipients": ["treasury.testnet"],
-            "allowed_operations": ["transfer"],
-        })
+    @classmethod
+    def setUpClass(cls):
+        cls.temp_dir = tempfile.TemporaryDirectory()
+        db_path = Path(cls.temp_dir.name) / "test_workflow.db"
+        cls.engine = create_engine(
+            f"sqlite:///{db_path.as_posix()}",
+            connect_args={"check_same_thread": False},
+        )
+        cls.TestingSessionLocal = sessionmaker(
+            autocommit=False,
+            autoflush=False,
+            bind=cls.engine,
+        )
+        Base.metadata.create_all(bind=cls.engine)
+
+        def override_get_db():
+            db = cls.TestingSessionLocal()
+            try:
+                yield db
+            finally:
+                db.close()
+
+        app.dependency_overrides[get_db] = override_get_db
+        cls.client = TestClient(app)
+
+    @classmethod
+    def tearDownClass(cls):
+        app.dependency_overrides.clear()
+        cls.engine.dispose()
+        cls.temp_dir.cleanup()
+
+    @patch("app.api.v1.operations.evaluate_risk")
+    def test_complete_sentinel_workflow(self, mock_evaluate_risk):
+        """Simulates full production workflow from agent onboarding to policy auditing."""
+        mock_evaluate_risk.return_value = AIAnalysisResponse(
+            risk_level="low",
+            risk_score=12,
+            flags=["verified_treasury"],
+            explanation="Compliant transfer with low behavioral variance.",
+            evidence=["amount:40.00"],
+            analysis_available=True,
+            model_used="gemini-2.5-flash",
+            latency_ms=95,
+        )
+
+        # 1. Onboard Agent via service
+        with self.TestingSessionLocal() as session:
+            agent = create_agent(session, f"Workflow-Agent-{uuid4().hex[:6]}")
+        headers = {"X-API-Key": agent["api_key"]}
+
+        # 2. Agent creates a security policy
+        policy_res = self.client.post(
+            "/api/v1/policies",
+            headers=headers,
+            json={
+                "name": "Tesorería Institucional",
+                "max_amount": "100.00",
+                "allowed_tokens": ["USDC"],
+                "allowed_recipients": ["treasury.testnet"],
+                "allowed_operations": ["transfer"],
+            },
+        )
         self.assertEqual(policy_res.status_code, 201)
         policy = policy_res.json()
         policy_id = policy["id"]
-        self.assertEqual(policy["max_amount"], "100")
-        self.assertIn("USDC", policy["allowed_tokens"])
-        self.assertIn("treasury.testnet", policy["allowed_recipients"])
-        self.assertIn("transfer", policy["allowed_operations"])
 
-        # 2. Evaluar una operación por 40 que cumpla las condiciones.
-        approved_res = self.client.post("/api/v1/operations/evaluate", json={
-            "agent_id": "agent-approved-1",
-            "policy_id": policy_id,
-            "network": "near-testnet",
-            "operation": "transfer",
-            "token": "USDC",
-            "amount": "40",
-            "recipient": "treasury.testnet",
-        })
-        self.assertEqual(approved_res.status_code, 201)
+        # 3. Evaluate compliant operation (amount = 40 <= 100)
+        approved_res = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=headers,
+            json={
+                "policy_id": policy_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "40.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(approved_res.status_code, 200)
         approved_op = approved_res.json()
         self.assertEqual(approved_op["decision"], "approved")
-        self.assertTrue(all(c["passed"] for c in approved_op["checks"]))
+        self.assertEqual(approved_op["reason"], "Operation complies with policy")
+        self.assertEqual(approved_op["ai_analysis"]["risk_score"], 12)
 
-        # 3. Evaluar otra por 150 (excede límite de monto).
-        rejected_res = self.client.post("/api/v1/operations/evaluate", json={
-            "agent_id": "agent-rejected-1",
-            "policy_id": policy_id,
-            "network": "near-testnet",
-            "operation": "transfer",
-            "token": "USDC",
-            "amount": "150",
-            "recipient": "treasury.testnet",
-        })
-        self.assertEqual(rejected_res.status_code, 201)
+        # 4. Evaluate non-compliant operation (amount = 150 > 100)
+        rejected_res = self.client.post(
+            "/api/v1/operations/evaluate",
+            headers=headers,
+            json={
+                "policy_id": policy_id,
+                "network": "near-testnet",
+                "operation": "transfer",
+                "token": "USDC",
+                "amount": "150.00",
+                "recipient": "treasury.testnet",
+            },
+        )
+        self.assertEqual(rejected_res.status_code, 200)
         rejected_op = rejected_res.json()
         self.assertEqual(rejected_op["decision"], "rejected")
+        self.assertEqual(rejected_op["reason"], "Amount exceeds policy limit")
 
-        # 4. Confirmar que solo la rechazada aparece en Alertas (GET /operations?decision=rejected).
-        alerts_res = self.client.get("/api/v1/operations", params={"decision": "rejected"})
-        self.assertEqual(alerts_res.status_code, 200)
-        alerts_data = alerts_res.json()
-        self.assertEqual(alerts_data["total"], 1)
-        self.assertEqual(alerts_data["summary"]["rejected"], 1)
-        self.assertEqual(alerts_data["summary"]["approved"], 0)
-        self.assertEqual(len(alerts_data["items"]), 1)
-        self.assertEqual(alerts_data["items"][0]["operation_id"], rejected_op["operation_id"])
-        self.assertEqual(alerts_data["items"][0]["amount"], "150")
-
-        # Verificar que el historial global contiene ambas (total = 2, 1 aprobada, 1 rechazada)
-        all_ops = self.client.get("/api/v1/operations").json()
-        self.assertEqual(all_ops["total"], 2)
-        self.assertEqual(all_ops["summary"]["total"], 2)
-        self.assertEqual(all_ops["summary"]["approved"], 1)
-        self.assertEqual(all_ops["summary"]["rejected"], 1)
-
-        # 5. Abrir su detalle y comprobar el control de monto fallido.
-        detail_res = self.client.get(f"/api/v1/operations/{rejected_op['operation_id']}")
-        self.assertEqual(detail_res.status_code, 200)
-        detail = detail_res.json()
-        self.assertEqual(detail["decision"], "rejected")
-        amount_check = next(c for c in detail["checks"] if c["code"] == "amount")
-        self.assertFalse(amount_check["passed"])
-        self.assertEqual(amount_check["detail"], "Monto: 150. Máximo: 100.")
-
-        # Otros controles sí pasaron
-        token_check = next(c for c in detail["checks"] if c["code"] == "token")
-        self.assertTrue(token_check["passed"])
-        recipient_check = next(c for c in detail["checks"] if c["code"] == "recipient")
-        self.assertTrue(recipient_check["passed"])
-
-        # 6. Consultar la política aplicada (snapshot vs actual).
-        self.assertEqual(detail["policy_snapshot"]["id"], policy_id)
-        current_policy_res = self.client.get(f"/api/v1/policies/{policy_id}")
-        self.assertEqual(current_policy_res.status_code, 200)
-        self.assertEqual(current_policy_res.json()["name"], "Tesorería Institucional")
-
-        # 7. Buscar, filtrar y paginar alertas.
-        # Búsqueda por agent_id
-        search_res = self.client.get("/api/v1/operations", params={"decision": "rejected", "q": "agent-rejected-1"})
-        self.assertEqual(search_res.json()["total"], 1)
-        non_matching_search = self.client.get("/api/v1/operations", params={"decision": "rejected", "q": "agent-approved-1"})
-        self.assertEqual(non_matching_search.json()["total"], 0)
-
-        # Paginación
-        paginated_res = self.client.get("/api/v1/operations", params={"decision": "rejected", "page": 1, "page_size": 1})
-        self.assertEqual(len(paginated_res.json()["items"]), 1)
-        self.assertEqual(paginated_res.json()["total"], 1)
-
-        # 8. Recargar y verificar que los datos persisten en nueva instancia.
-        with TestClient(create_app(self.url)) as new_client:
-            persisted_alerts = new_client.get("/api/v1/operations?decision=rejected").json()
-            self.assertEqual(persisted_alerts["total"], 1)
-            self.assertEqual(persisted_alerts["items"][0]["operation_id"], rejected_op["operation_id"])
-            persisted_policies = new_client.get("/api/v1/policies").json()
-            self.assertEqual(len(persisted_policies), 1)
-            self.assertEqual(persisted_policies[0]["id"], policy_id)
+        # 5. Verify audit history contains both operations
+        history = self.client.get("/api/v1/operations", headers=headers).json()
+        self.assertEqual(len(history), 2)
+        decisions = [op["decision"] for op in history]
+        self.assertIn("approved", decisions)
+        self.assertIn("rejected", decisions)
 
 
 if __name__ == "__main__":

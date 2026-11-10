@@ -1,44 +1,79 @@
-﻿import os
-from contextlib import asynccontextmanager
-from pathlib import Path
+"""Sentinel Backend Application.
 
+Provides security orchestration, deterministic policy enforcement,
+and advisory AI risk evaluation for blockchain agent operations.
+"""
+
+import logging
+import os
+from contextlib import asynccontextmanager
+
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .database import Base, connect_database
-from .routes import router
+load_dotenv()
+
+from app.api.v1 import api_v1_router
+from app.core.database import Base, engine
+
+logger = logging.getLogger(__name__)
 
 
-def create_app(database_url: str | None = None) -> FastAPI:
-    @asynccontextmanager
-    async def lifespan(app: FastAPI):
-        url = database_url or os.getenv("DATABASE_URL")
-        if not url:
-            data_dir = Path(__file__).resolve().parent.parent / "data"
-            data_dir.mkdir(exist_ok=True)
-            url = f"sqlite:///{(data_dir / 'sentinel.db').as_posix()}"
-        engine, session_factory = connect_database(url)
-        Base.metadata.create_all(engine)
-        app.state.session_factory = session_factory
-        try:
-            yield
-        finally:
-            engine.dispose()
-
-    app = FastAPI(title="Sentinel API", description="AI Agent Security Infrastructure", version="0.2.0", lifespan=lifespan)
-    origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174")
-    app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in origins.split(",")], allow_credentials=False, allow_methods=["GET", "POST"], allow_headers=["Content-Type", "Idempotency-Key"])
-    app.include_router(router)
-
-    @app.get("/")
-    def root():
-        return {"project": "Sentinel", "message": "AI Agent Security Infrastructure", "status": "running"}
-
-    @app.get("/api/v1/health")
-    def health():
-        return {"status": "healthy", "service": "sentinel-backend"}
-
-    return app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initializes database schema and manages application lifecycle."""
+    # Ensure models are imported so Base.metadata knows about all tables
+    import app.models  # noqa: F401
+    Base.metadata.create_all(bind=engine)
+    logger.info("Database schema initialized.")
+    yield
 
 
-app = create_app()
+app = FastAPI(
+    title="Sentinel API",
+    description="AI Agent Security Infrastructure",
+    version="0.3.0",
+    lifespan=lifespan,
+)
+
+# CORS configuration aligned with Frontend contract
+allowed_origins_env = os.getenv(
+    "CORS_ORIGINS",
+    "http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174",
+)
+allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["X-API-Key", "Content-Type"],
+)
+
+# Include versioned API routers
+app.include_router(api_v1_router)
+
+
+# ============================================================
+# PUBLIC ENDPOINTS
+# ============================================================
+
+@app.get("/", tags=["Public"])
+def root() -> dict[str, str]:
+    """Root status indicator."""
+    return {
+        "project": "Sentinel",
+        "message": "AI Agent Security Infrastructure",
+        "status": "running",
+    }
+
+
+@app.get("/api/v1/health", tags=["Public"])
+def health() -> dict[str, str]:
+    """Health check for service monitoring."""
+    return {
+        "status": "healthy",
+        "service": "sentinel-backend",
+    }

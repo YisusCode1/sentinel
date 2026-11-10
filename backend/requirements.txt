@@ -1,6 +1,9 @@
 fastapi
-uvicorn
+uvicorn[standard]
 pydantic
 pydantic-settings
 sqlalchemy
 psycopg[binary]
+httpx
+alembic
+pytest
