@@ -74,21 +74,23 @@ test('Results keep rejected decisions distinct and use unique accessible heading
 });
 
 test('Unavailable AI analysis hides numeric risk score in result detail', () => {
-  const html = renderToStaticMarkup(createElement(OperationResult, {
-    record: {
-      ...record,
-      ai_analysis: {
-        risk_level: 'unknown',
-        risk_score: 50,
-        flags: [],
-        explanation: 'Sin análisis disponible',
-        evidence: [],
-        analysis_available: false,
+  const html = renderToStaticMarkup(createElement(ToastProvider, null,
+    createElement(OperationResult, {
+      record: {
+        ...record,
+        ai_analysis: {
+          risk_level: 'unknown',
+          risk_score: 50,
+          flags: [],
+          explanation: 'Sin análisis disponible',
+          evidence: [],
+          analysis_available: false,
+        },
       },
-    },
-    pending: false,
-    error: '',
-  }));
+      pending: false,
+      error: '',
+    }),
+  ));
   assert.match(html, /Análisis de riesgo IA no disponible/);
   assert.doesNotMatch(html, /50\/100|50\/100 score/i);
 });
