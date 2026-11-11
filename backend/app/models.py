@@ -173,6 +173,8 @@ class Policy(Base):
 class OperationRecord(Base):
     __tablename__ = "operations"
 
+    ai_analysis: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
     __table_args__ = (
         ForeignKeyConstraint(
             ["policy_id", "agent_id"],

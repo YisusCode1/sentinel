@@ -35,3 +35,7 @@ Para ello, instala `oxlint-tsgolint` y modifica el archivo `.oxlintrc.json` con 
 ```
 
 Consulta la [documentación de las reglas de Oxlint](https://oxc.rs/docs/guide/usage/linter/rules) para conocer la lista completa de reglas y categorías disponibles.
+## Asistente de IA de Sentinel
+
+Consulta [la guía de instalación y demostración](docs/ai_assistant.md) para levantar
+el sistema completo con Docker o localmente, crear un agente y probar el chat.

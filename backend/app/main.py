@@ -1,13 +1,16 @@
 from uuid import uuid4
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.core.auth import get_authenticated_agent
 from app.core.database import get_db
 from app.models import Agent, Policy, OperationRecord
-from app.services.ai_client import analyze_with_ai
+from app.services.ai_client import analyze_with_ai, chat_with_ai
+from app.schemas.assistant import AssistantRequest, AssistantResponse
 from app.schemas.policy import PolicyCreate, PolicyResponse
 from app.schemas.operation import (
     OperationRequest,
@@ -164,19 +167,26 @@ def evaluate(
         policy=policy_response,
     )
 
-    # Gemini only analyzes operations approved by Policy Engine.
-    if decision.decision == "approved":
-        ai_analysis = analyze_with_ai(
-            operation=operation,
-            policy=policy_response,
-            agent_id=agent.id,
-        )
-
-        decision = decision.model_copy(
-            update={
-                "ai_analysis": ai_analysis,
-            }
-        )
+    # Compare only this agent's same-token, same-network history.
+    history = db.query(OperationRecord).filter(
+        OperationRecord.agent_id == agent.id,
+        OperationRecord.network == operation.network,
+        OperationRecord.token == operation.token,
+    )
+    average = history.filter(OperationRecord.decision == "approved").with_entities(
+        func.avg(OperationRecord.amount)
+    ).scalar()
+    ai_analysis = analyze_with_ai(
+        operation=operation, policy=policy_response, agent_id=agent.id,
+        history_context={
+            "historical_avg_amount": float(average) if average is not None else None,
+            "is_new_recipient": history.filter(OperationRecord.recipient == operation.recipient).first() is None,
+            "recent_tx_count_1h": history.filter(
+                OperationRecord.created_at >= datetime.now(timezone.utc) - timedelta(hours=1)
+            ).count(),
+        },
+    )
+    decision = decision.model_copy(update={"ai_analysis": ai_analysis})
 
     # Never trust an agent_id supplied by the client.
     operation_record = OperationRecord(
@@ -190,6 +200,7 @@ def evaluate(
         recipient=operation.recipient,
         decision=decision.decision,
         reason=decision.reason,
+        ai_analysis=ai_analysis.model_dump(mode="json"),
     )
 
     db.add(operation_record)
@@ -233,3 +244,29 @@ def get_operations(
     )
 
     return operations
+
+
+@app.get("/api/v1/policies", response_model=list[PolicyResponse])
+def list_policies(agent: Agent = Depends(get_authenticated_agent), db: Session = Depends(get_db)):
+    return db.query(Policy).filter(Policy.agent_id == agent.id).order_by(Policy.id).limit(200).all()
+
+
+@app.post("/api/v1/assistant/chat", response_model=AssistantResponse)
+def assistant(request: AssistantRequest, agent: Agent = Depends(get_authenticated_agent),
+              db: Session = Depends(get_db)):
+    operations = db.query(OperationRecord).filter(OperationRecord.agent_id == agent.id)
+    selected = None
+    if request.operation_id:
+        selected = operations.filter(OperationRecord.id == request.operation_id).first()
+        if selected is None:
+            raise HTTPException(status_code=404, detail="Operation not found")
+    recent = operations.order_by(OperationRecord.created_at.desc()).limit(20).all()
+    policies = db.query(Policy).filter(Policy.agent_id == agent.id, Policy.active.is_(True)).limit(20).all()
+    context = {
+        "scope": "authenticated_agent_only; at most 20 recent operations and 20 active policies",
+        "agents": [{"id": agent.id, "name": agent.name, "active": agent.active}],
+        "operations": [OperationRecordResponse.model_validate(op).model_dump(mode="json") for op in recent],
+        "selected_operation": OperationRecordResponse.model_validate(selected).model_dump(mode="json") if selected else None,
+        "policies": [PolicyResponse.model_validate(p).model_dump(mode="json") for p in policies],
+    }
+    return chat_with_ai(request, context)

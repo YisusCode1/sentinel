@@ -49,6 +49,8 @@ class OperationDecision(BaseModel):
 class OperationRecordResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    ai_analysis: AIAnalysisResponse | None = None
+
     id: str
     agent_id: str
     policy_id: str

@@ -24,3 +24,7 @@ broadcast/
 # Environment
 .env.*
 !.env.example
+
+# Local test artifacts
+.pytest_cache/
+.test-tmp*/

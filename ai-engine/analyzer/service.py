@@ -15,7 +15,11 @@ from .config import AIEngineSettings, get_settings
 from .prompts import SYSTEM_INSTRUCTION, build_user_prompt
 from .sanitizer import compute_heuristic_signals, sanitize_operation_input
 from .schemas import (
+    AssistantRequest,
+    AssistantResponse,
+    AssistantProviderSchema,
     GeminiStructuredOutput,
+    GeminiProviderSchema,
     OperationAnalysisRequest,
     RiskAnalysisResponse,
 )
@@ -133,11 +137,7 @@ def _prepare_operation(
 
 def _provider_settings() -> tuple[AIEngineSettings, str, types.HttpOptions]:
     settings = get_settings()
-    api_key = (
-        settings.GEMINI_API_KEY.get_secret_value()
-        if settings.GEMINI_API_KEY is not None
-        else ""
-    )
+    api_key = settings.provider_key
     if not api_key.strip():
         raise ValueError("GEMINI_API_KEY is missing or empty")
     timeout_seconds = settings.GEMINI_TIMEOUT_SECONDS
@@ -148,13 +148,15 @@ def _provider_settings() -> tuple[AIEngineSettings, str, types.HttpOptions]:
     )
 
 
-def _generation_config() -> types.GenerateContentConfig:
-    return types.GenerateContentConfig(
+def _generation_config(model: str) -> types.GenerateContentConfig:
+    options = dict(
         system_instruction=SYSTEM_INSTRUCTION,
         response_mime_type="application/json",
-        response_schema=GeminiStructuredOutput,
-        temperature=0.1,
+        response_schema=GeminiProviderSchema,
     )
+    if not model.startswith("gemini-3"):
+        options["temperature"] = 0.1
+    return types.GenerateContentConfig(**options)
 
 
 def _validate_response(
@@ -175,6 +177,132 @@ def _close_sync_client(client: Any) -> None:
         client.close()
     except Exception as exc:
         _LOGGER.warning("AI client cleanup failed: %s", type(exc).__name__)
+
+
+def deterministic_analysis(request: OperationAnalysisRequest) -> RiskAnalysisResponse:
+    """Transparent, reproducible demo, never represented as a model result."""
+    data, injection, signals = _prepare_operation(request)
+    flags = [signal.removeprefix("heuristic:") for signal in signals]
+    if request.allowed_recipients is not None and request.recipient not in request.allowed_recipients:
+        flags.append("recipient_not_in_allowlist")
+    if request.is_new_recipient:
+        flags.append("new_recipient")
+    if request.recent_tx_count_1h is not None and request.recent_tx_count_1h > 20:
+        flags.append("high_frequency")
+    score = min(85, 15 + 25 * len(flags))
+    output = GeminiStructuredOutput(
+        risk_score=score,
+        risk_level="high" if score >= 70 else "medium" if score >= 40 else "low",
+        flags=["deterministic_demo", "ai_analysis_unavailable", *flags],
+        explanation="Simulación heurística: " + (
+            ", ".join(flags) if flags else "sin anomalías en las comprobaciones disponibles"
+        ) + ". No es una evaluación LLM; el motor de políticas decide.", evidence=signals,
+    )
+    output = _apply_output_guardrails(output, data, injection)
+    return RiskAnalysisResponse(**output.model_dump(), analysis_available=False,
+                                model_used="deterministic-demo-v1", latency_ms=0)
+
+
+async def analyze_for_api(request: OperationAnalysisRequest) -> RiskAnalysisResponse:
+    result = await analyze_operation_async(request)
+    if not result.analysis_available and get_settings().AI_DEMO_FALLBACK:
+        demo = deterministic_analysis(request)
+        demo.latency_ms = result.latency_ms
+        return demo
+    return result
+
+
+async def assistant_chat(request: AssistantRequest) -> AssistantResponse:
+    """Read-only chat using the same provider, timeout and sanitizer."""
+    import json
+    from .prompts import ASSISTANT_INSTRUCTION
+    from .sanitizer import sanitize_payload
+    from .schemas import AssistantOutput, AssistantResponse
+
+    clean, injection = sanitize_payload({"metadata": request.model_dump(mode="json")}, 2000,
+                                        trusted_keys=frozenset({"risk_score"}))
+    clean = clean["metadata"]
+    warnings = ["prompt_injection_suspected"] if injection else []
+    owned_client = None
+    try:
+        settings, api_key, http_options = _provider_settings()
+        owned_client = genai.Client(api_key=api_key, http_options=http_options)
+        payload = json.dumps(clean, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e")
+        response = await asyncio.wait_for(
+            owned_client.aio.models.generate_content(
+                model=settings.GEMINI_MODEL,
+                contents=f"Sanitizer injection signal: {injection}\nUntrusted JSON data:\n{payload}",
+                config=types.GenerateContentConfig(
+                    system_instruction=ASSISTANT_INSTRUCTION,
+                    response_mime_type="application/json", response_schema=AssistantProviderSchema,
+                    **({} if settings.GEMINI_MODEL.startswith("gemini-3") else {"temperature": 0.1}),
+                ),
+            ), timeout=settings.GEMINI_TIMEOUT_SECONDS,
+        )
+        output = AssistantOutput.model_validate_json(response.text)
+        # Saved policy decisions may be explained; claims of actions by the
+        # assistant or on-chain verification are never supported by this API.
+        narrative = output.reply + " " + " ".join(output.suggested_rules)
+        if re.search(
+            r"\b(?:I|we)\s+(?:have\s+)?(?:approved|authorized|executed|modified|changed)\b"
+            r"|\b(?:he|hemos)\s+(?:aprobado|autorizado|ejecutado|modificado|cambiado)\b"
+            r"|\b(?:is|was)\s+(?:on-chain verified|verified on-chain)\b"
+            r"|\b(?:está|fue)\s+verificad[ao]\s+(?:en blockchain|on-chain)\b",
+            narrative, re.IGNORECASE,
+        ):
+            warnings.append("output_guardrail_sanitized")
+            raise ValueError("Unsupported assistant action claim")
+        return AssistantResponse(**output.model_dump(), mode="llm",
+                                 model_used=settings.GEMINI_MODEL, warnings=warnings)
+    except Exception as exc:
+        _LOGGER.warning("Assistant provider unavailable: %s", type(exc).__name__)
+        warnings.append("llm_unavailable")
+    finally:
+        if owned_client is not None:
+            try:
+                await owned_client.aio.aclose()
+            except Exception as exc:
+                _LOGGER.warning("Assistant cleanup failed: %s", type(exc).__name__)
+            finally:
+                _close_sync_client(owned_client)
+    if not get_settings().AI_DEMO_FALLBACK:
+        return AssistantResponse(reply="El proveedor de IA no está disponible. Inténtalo de nuevo.",
+                                 mode="unavailable", warnings=warnings)
+    context = clean.get("context", {})
+    operations = context.get("operations", [])
+    policies = context.get("policies", [])
+    selected = context.get("selected_operation")
+    message = clean.get("message", "").lower()
+    matched = next((op for op in operations if op.get("id", "_") in message), None)
+    op = selected or matched or (operations[0] if operations else None)
+    lines = [f"Modo demostración: contexto de {len(operations)} operaciones recientes y {len(policies)} políticas activas del agente autenticado."]
+    if operations:
+        rejected = sum(op["decision"] == "rejected" for op in operations)
+        high_risk = sum(bool(op.get("ai_analysis")) and op["ai_analysis"]["risk_score"] >= 70 for op in operations)
+        lines.append(f"En esta muestra: {rejected} rechazos por política y {high_risk} análisis con riesgo de al menos 70/100.")
+    if injection:
+        lines.append("Se detectó texto potencialmente manipulador; no se ejecutan instrucciones ni cambios.")
+    if op:
+        lines.append(f"Según el motor de políticas, la operación {op['id']} tiene decisión {op['decision']}: {op['reason']}.")
+        analysis = op.get("ai_analysis")
+        if analysis:
+            lines.append(f"Riesgo orientativo: {analysis['risk_score']}/100 ({analysis['risk_level']}). {analysis['explanation']}")
+    else:
+        lines.append("No hay operaciones registradas para explicar. Evalúa una operación primero.")
+    if policies:
+        lines.append("Políticas activas: " + "; ".join(
+            f"{p['name']}: límite {p['max_amount']}, tokens {', '.join(p['allowed_tokens'])}"
+            for p in policies[:5]
+        ) + ".")
+    lines.append("La muestra no acredita ejecución ni verificación en blockchain. Las propuestas requieren revisión humana.")
+    rules = []
+    if any(word in message for word in ("regla", "polít", "polit", "riesgo", "audit", "rule", "risk")):
+        rules = ["Revisar el límite por operación según el uso esperado del agente.",
+                 "Mantener listas explícitas de tokens y destinatarios permitidos."]
+        if op and op.get("ai_analysis") and "exceeds_policy_max_amount" in op["ai_analysis"]["flags"]:
+            rules.insert(0, "Mantener el límite vigente ante este exceso de monto; revisar el propósito de la operación antes de proponer cambios.")
+    return AssistantResponse(reply="\n\n".join(lines), suggested_rules=rules, mode="demo",
+                             model_used="deterministic-demo-v1", warnings=warnings)
 
 
 def analyze_operation(
@@ -203,7 +331,7 @@ def analyze_operation(
         response = client.models.generate_content(
             model=settings.GEMINI_MODEL,
             contents=user_prompt,
-            config=_generation_config(),
+            config=_generation_config(settings.GEMINI_MODEL),
         )
         result = _validate_response(
             response.text, sanitized_data, pre_detected_injection, settings.GEMINI_MODEL
@@ -239,7 +367,7 @@ async def analyze_operation_async(
             client.aio.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=user_prompt,
-                config=_generation_config(),
+                config=_generation_config(settings.GEMINI_MODEL),
             ),
             timeout=settings.GEMINI_TIMEOUT_SECONDS,
         )

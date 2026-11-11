@@ -70,9 +70,13 @@ def test_missing_dotenv_and_key_allow_startup(isolated_config, tmp_path, monkeyp
     monkeypatch.chdir(tmp_path)
     settings = module.get_settings()
     assert settings.GEMINI_API_KEY is None
-    assert settings.GEMINI_MODEL == "gemini-2.5-flash"
+    assert settings.GEMINI_MODEL == "gemini-3.5-flash-lite"
 
 
 def test_discovery_paths_are_relative_cwd_then_absolute_module():
     env_files = config.AIEngineSettings.model_config["env_file"]
-    assert env_files == (".env", str(Path(config.__file__).resolve().parent.parent / ".env"))
+    assert env_files == (
+        ".env",
+        str(Path(config.__file__).resolve().parent.parent.parent / ".env"),
+        str(Path(config.__file__).resolve().parent.parent / ".env"),
+    )

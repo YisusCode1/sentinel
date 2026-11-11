@@ -1,45 +1,59 @@
 services:
+  ai-engine:
+    build: ./ai-engine
+    ports:
+      - "127.0.0.1:8002:8002"
+    environment:
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
+      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-30}
+      AI_DEMO_FALLBACK: ${AI_DEMO_FALLBACK:-true}
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?Copy .env.example to .env and configure INTERNAL_SERVICE_KEY}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://localhost:8002/health'))['status'] == 'healthy'"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
   backend:
-    build:
-      context: ./backend
-    container_name: sentinel-backend
+    build: ./backend
     ports:
-      - "8001:8000"
-    volumes:
-      - ./backend:/app
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "127.0.0.1:8001:8000"
     environment:
-      DATABASE_URL: postgresql+psycopg://sentinel:sentinel_dev_password@db:5432/sentinel_db
-      AI_ENGINE_URL: http://host.docker.internal:8002
-      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:-}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://sentinel:sentinel_dev_password@db:5432/sentinel_db}
+      AI_ENGINE_URL: ${AI_ENGINE_URL:-http://ai-engine:8002}
+      INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?Configure INTERNAL_SERVICE_KEY}
+      AI_ENGINE_TIMEOUT_SECONDS: ${AI_ENGINE_TIMEOUT_SECONDS:-40}
+      SENTINEL_ENV: ${SENTINEL_ENV:-development}
     depends_on:
       db:
         condition: service_healthy
+      ai-engine:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   frontend:
-    build:
-      context: ./frontend
-    container_name: sentinel-frontend
+    build: ./frontend
     ports:
-      - "5174:5173"
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
+      - "127.0.0.1:5174:5173"
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8001}
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   db:
     image: postgres:16-alpine
-    container_name: sentinel-db
-    restart: unless-stopped
     environment:
       POSTGRES_USER: sentinel
-      POSTGRES_PASSWORD: sentinel_dev_password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-sentinel_dev_password}
       POSTGRES_DB: sentinel_db
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -50,4 +64,3 @@ services:
 
 volumes:
   postgres_data:
-  frontend_node_modules:

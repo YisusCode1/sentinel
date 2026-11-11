@@ -31,3 +31,8 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## Sentinel AI assistant
+
+See [the setup and demo guide](docs/ai_assistant.md) for the complete Docker/local
+workflow, credentials, Gemini configuration, fallback behavior and tests.
