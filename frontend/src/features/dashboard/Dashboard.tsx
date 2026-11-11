@@ -75,23 +75,26 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
   async function populateDemoTelemetry() {
     if (!isOnline || populating) return;
     setPopulating(true);
+
     try {
-      let polId = policies?.[0]?.id;
-      if (!polId) {
-        const pol = await apiRequest<PolicyRecord>('/policies', {
+      const demoPolicyName = 'Tesorería Corporativa NEAR';
+      let demoPolicy = policies?.find((policy) => policy.name === demoPolicyName);
+
+      if (!demoPolicy) {
+        demoPolicy = await apiRequest<PolicyRecord>('/policies', {
           method: 'POST',
           body: JSON.stringify({
-            name: 'Tesorería Corporativa NEAR',
+            name: demoPolicyName,
             max_amount: '100.00',
             allowed_tokens: ['USDC', 'USDT', 'NEAR'],
             allowed_recipients: ['tesoreria.testnet', 'proveedor-autorizado.testnet'],
             allowed_operations: ['transfer', 'swap'],
           }),
         });
-        polId = pol.id;
       }
 
-      // Evaluar 3 operaciones de muestra representativas
+      const polId = demoPolicy.id;
+
       await apiRequest('/operations/evaluate', {
         method: 'POST',
         body: JSON.stringify({
@@ -134,8 +137,11 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
       ]);
       setOperations(ops);
       setPolicies(pols);
-    } catch {
-      // Ignorar fallos de red silenciosos en demo
+    } catch (error) {
+      console.error('No se pudo cargar la telemetría demo.', error);
+      if (typeof window !== 'undefined') {
+        window.alert('No se pudo cargar la telemetría demo. Revisa la conexión con el backend.');
+      }
     } finally {
       setPopulating(false);
     }

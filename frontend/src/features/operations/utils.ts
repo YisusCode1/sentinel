@@ -33,22 +33,27 @@ function csvCell(value: string): string {
 
 export function operationsCsv(items: OperationRecord[]): string {
   const header = ["ID", "Fecha UTC", "Agente", "ID Política", "Red", "Tipo", "Token", "Monto", "Destinatario", "Decisión", "Motivo", "Riesgo IA"];
-  const rows = items.map((item) => [
-    item.id || item.operation_id || "",
-    item.created_at,
-    item.agent_id,
-    item.policy_id,
-    item.network,
-    item.operation,
-    item.token,
-    item.amount,
-    item.recipient,
-    item.decision,
-    item.reason,
-    item.ai_analysis?.risk_score !== undefined
-      ? `${item.ai_analysis.risk_score} (${item.ai_analysis.risk_level})`
-      : "No disponible",
-  ]);
+  const rows = items.map((item) => {
+    const ai = item.ai_analysis;
+    const riskText = !ai || !ai.analysis_available || ai.risk_level === "unknown"
+      ? "No disponible"
+      : `${ai.risk_score} (${ai.risk_level})`;
+
+    return [
+      item.id || item.operation_id || "",
+      item.created_at,
+      item.agent_id,
+      item.policy_id,
+      item.network,
+      item.operation,
+      item.token,
+      item.amount,
+      item.recipient,
+      item.decision,
+      item.reason,
+      riskText,
+    ];
+  });
   return "\uFEFF" + [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n");
 }
 

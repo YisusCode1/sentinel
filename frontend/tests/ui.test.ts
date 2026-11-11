@@ -73,6 +73,26 @@ test('Results keep rejected decisions distinct and use unique accessible heading
   for (const id of headingIds) assert.ok(html.includes(`aria-labelledby="${id}"`));
 });
 
+test('Unavailable AI analysis hides numeric risk score in result detail', () => {
+  const html = renderToStaticMarkup(createElement(OperationResult, {
+    record: {
+      ...record,
+      ai_analysis: {
+        risk_level: 'unknown',
+        risk_score: 50,
+        flags: [],
+        explanation: 'Sin análisis disponible',
+        evidence: [],
+        analysis_available: false,
+      },
+    },
+    pending: false,
+    error: '',
+  }));
+  assert.match(html, /Análisis de riesgo IA no disponible/);
+  assert.doesNotMatch(html, /50\/100|50\/100 score/i);
+});
+
 test('Policy dialog has a labelled native focus boundary; notifications have a stable live region', () => {
   const html = renderToStaticMarkup(createElement(ToastProvider, null,
     createElement(Modal, { labelledBy: 'test-title', onClose: () => {} }, createElement('h2', { id: 'test-title' }, 'Politica')),

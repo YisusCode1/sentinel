@@ -52,3 +52,32 @@ test("CSV preserves quoted text and decimal precision and neutralizes formulas",
   assert.ok(csv.includes('"0.000000000000000000000001"'));
   assert.ok(csv.includes('"12 (low)"'));
 });
+
+test("CSV hides risk score when AI analysis is unavailable or unknown", () => {
+  const unavailable: OperationRecord = {
+    id: "op-unavailable",
+    operation_id: "op-unavailable",
+    created_at: "2026-11-04T10:00:00+00:00",
+    agent_id: "agent.testnet",
+    policy_id: "policy-test",
+    network: "near-testnet",
+    operation: "transfer",
+    token: "USDC",
+    amount: "25.00",
+    recipient: "treasury.testnet",
+    decision: "approved",
+    reason: "Dentro de gama",
+    ai_analysis: {
+      risk_level: "unknown",
+      risk_score: 50,
+      flags: [],
+      explanation: "Sin análisis disponible",
+      evidence: [],
+      analysis_available: false,
+    },
+  };
+
+  const csv = operationsCsv([unavailable]);
+  assert.ok(csv.includes('"No disponible"'));
+  assert.doesNotMatch(csv, /"50 \(unknown\)"|"50 \(.*\)"/);
+});

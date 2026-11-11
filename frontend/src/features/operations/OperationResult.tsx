@@ -80,7 +80,7 @@ function RiskRadialGauge({ score }: { score: number }) {
 
 function PipelineStepper({ record }: { record: OperationRecord }) {
   const isApproved = record.decision === "approved";
-  const hasAi = Boolean(record.ai_analysis && record.ai_analysis.risk_level !== "unknown");
+  const hasAi = Boolean(record.ai_analysis && record.ai_analysis.analysis_available && record.ai_analysis.risk_level !== "unknown");
 
   return (
     <div className="ops-pipeline-stepper" role="region" aria-label="Flujo de validación de seguridad">
