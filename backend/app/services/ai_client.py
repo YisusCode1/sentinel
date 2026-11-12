@@ -13,7 +13,7 @@ AI_ENGINE_URL = os.getenv(
 
 INTERNAL_SERVICE_KEY = os.getenv("INTERNAL_SERVICE_KEY")
 
-AI_ENGINE_TIMEOUT = 6.0
+AI_ENGINE_TIMEOUT = 20.0
 
 
 def unavailable_analysis(error: Exception) -> AIAnalysisResponse:
