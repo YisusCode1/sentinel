@@ -55,7 +55,7 @@ async def test_async_success_awaits_sdk_and_matches_sync_result(operation, provi
     ).model_dump(exclude={"latency_ms"})
     provider.client.aio.models.generate_content.assert_awaited_once()
     call = provider.client.aio.models.generate_content.call_args.kwargs
-    assert call["config"].response_schema is GeminiStructuredOutput
+    assert call["config"].response_json_schema == GeminiStructuredOutput.model_json_schema()
     assert call["config"].response_mime_type == "application/json"
     assert call["config"].temperature == 0.1
     assert call["model"] == "gemini-2.5-flash"

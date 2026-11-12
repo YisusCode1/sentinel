@@ -144,7 +144,8 @@ def _provider_settings() -> tuple[AIEngineSettings, str, types.HttpOptions]:
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("GEMINI_TIMEOUT_SECONDS must be positive and finite")
     return settings, api_key, types.HttpOptions(
-        timeout=max(1, int(timeout_seconds * 1000))
+        timeout=max(1, int(timeout_seconds * 1000)),
+        api_version="v1beta",
     )
 
 
@@ -152,7 +153,7 @@ def _generation_config() -> types.GenerateContentConfig:
     return types.GenerateContentConfig(
         system_instruction=SYSTEM_INSTRUCTION,
         response_mime_type="application/json",
-        response_schema=GeminiStructuredOutput,
+        response_json_schema=GeminiStructuredOutput.model_json_schema(),
         temperature=0.1,
     )
 

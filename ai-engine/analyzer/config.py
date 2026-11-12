@@ -11,7 +11,7 @@ class AIEngineSettings(BaseSettings):
 
     GEMINI_API_KEY: SecretStr | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
-    GEMINI_TIMEOUT_SECONDS: float = 5.0
+    GEMINI_TIMEOUT_SECONDS: float = 15.0
 
     INTERNAL_SERVICE_KEY: SecretStr | None = None
 
