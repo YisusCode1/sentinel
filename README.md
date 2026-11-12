@@ -30,7 +30,7 @@ Sentinel combines deterministic security rules with advisory AI risk analysis.
 2. **Policy Isolation:** Each agent can only access policies assigned to it.
 3. **Deterministic Policy Engine:** Operations are checked against active policies, spending limits, allowed tokens, recipients, and operation types.
 4. **AI Risk Analysis:** Operations approved by the Policy Engine are sent to the AI Engine for additional risk assessment.
-5. **Persistence and Auditability:** The backend stores operation details and the deterministic decision. The current operation record does not persist the complete Gemini analysis.
+5. **Persistence and Auditability:** The backend stores operation details and the deterministic decision. The operation record also persists the Gemini advisory analysis (`ai_analysis`); if the provider is unavailable it stores an `unknown` fallback.
 
 The AI Engine is advisory only. It cannot approve, reject, authorize, or execute operations. The deterministic Policy Engine remains the sole authority for policy decisions.
 

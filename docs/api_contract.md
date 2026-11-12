@@ -177,43 +177,53 @@ Permite obtener el listado de operaciones registradas.
 - **Ejecución de transacciones:** una respuesta del backend, por sí sola, no garantiza ni ejecuta una transacción en una billetera externa.
 - **Autorización verificable:** cualquier autorización que pueda verificarse debe estar vinculada a los detalles específicos de la operación y ser validada por el componente que controla su ejecución.
 - **Verificación en blockchain (On-chain):** nunca se debe mostrar el mensaje «Verificado en blockchain» (on-chain verified) a menos que la verificación correspondiente se haya realizado realmente.
-## Implemented AI integration (2026-11-11)
+## Implemented AI integration
 
 This section supersedes the draft operation examples above.
-All backend policy, operation and assistant endpoints require `X-API-Key`.
-The backend derives agent identity from the key. Supplying `agent_id` in an
-operation request is rejected (422). There is no public agent-registration API;
-use the administrative CLI.
+All backend policy and operation endpoints require `X-API-Key`, except
+`GET /` and `GET /api/v1/health`. The backend derives the agent identity from
+the key. Supplying `agent_id` or any other unknown field in a request is
+rejected with 422. There is no public agent-registration API; agents and their
+keys are created with the administrative script:
 
-- `GET /api/v1/policies`: up to 200 policies of the authenticated agent.
+```bash
+docker compose exec backend python -m app.scripts.create_agent --name <agent-name> [--demo-policy]
+```
+
+The API key is printed once; only its hash is stored.
+
+- `POST /api/v1/policies`: `name`, `max_amount` (decimal string),
+  `allowed_tokens`, `allowed_recipients`, `allowed_operations`.
+- `GET /api/v1/policies`: policies of the authenticated agent.
+- `GET /api/v1/policies/{policy_id}`: one policy (404 if missing or owned by
+  another agent).
 - `POST /api/v1/operations/evaluate`: `policy_id`, `network`, `operation`, `token`,
   `amount` (decimal string), `recipient`. Response: `operation_id`, `decision`
   (`approved|rejected`), `reason`, `policy_id`, `ai_analysis`.
-- `GET /api/v1/operations`: records include persisted `ai_analysis` (nullable for
-  older records). Deterministic decisions are independent of the AI score.
-- `POST /api/v1/assistant/chat`: `{ "message": "Explica esta operación",
-  "operation_id": "optional-owned-operation-id", "history": [] }`.
-  History has at most 12 `{role: "user"|"assistant", content: string}` messages.
-  Message/content limits: 2000 characters. No client-supplied context is accepted.
-  Backend adds up to 20 recent operations, 20 active policies, selected operation
-  and the authenticated agent. Other agents and credentials are never included.
-  Response: `{reply, suggested_rules: string[], mode: "llm"|"demo"|"unavailable",
-  model_used: string|null, warnings: string[]}`. Suggestions are never applied.
+- `GET /api/v1/operations`: list of the agent's operations. Query: `decision`
+  (`approved|rejected`) and `limit` (1-200, default 50). Each record includes
+  the persisted `ai_analysis` (null for rejected and older records).
+- `GET /api/v1/operations/{operation_id}`: one operation (404 if missing or
+  owned by another agent).
 
-`ai_analysis` contains `risk_score` (0–100), `risk_level`
-(`low|medium|high|critical|unknown`), `flags`, `explanation`, `evidence`,
-`analysis_available`, `model_used`, `latency_ms`. Demo heuristics set
-`analysis_available=false`, `model_used=deterministic-demo-v1` and flag
-`deterministic_demo`. Input/output sanitization warnings are exposed as flags.
-No `requires_signature`, transaction execution or blockchain verification is
-implemented by these endpoints.
+Amounts are serialized as strings (for example `"10.00000000"`).
 
-Internal engine: `POST /analyze`, `POST /assistant/chat` require
-`X-Internal-Service-Key`. Missing server key: 503; invalid caller key: 401.
-`GET /health` reports configuration without validating the key against Gemini.
-Backend invalid credentials: 401; unowned/missing policy or selected operation:
-404; malformed payload: 422. Engine context exceeding 100 KB: 413.
-Provider/service failure produces an explicit demo or unavailable response and
-never overrides the deterministic decision.
+The deterministic Policy Engine is the only authority that approves or rejects
+an operation. Gemini only analyzes operations that the Policy Engine already
+approved, and its output is advisory. `ai_analysis` contains `risk_score`
+(0-100), `risk_level` (`low|medium|high|critical|unknown`), `flags`,
+`explanation`, `evidence`, `analysis_available`, `model_used` and `latency_ms`.
 
-See [AI assistant runbook](ai_assistant.md) for exact startup and test commands.
+If the AI provider fails or times out, the operation is still evaluated and
+stored: `ai_analysis` has `analysis_available=false`, `risk_level=unknown`
+and the flags `ai_analysis_unavailable` and `fallback_triggered`. In that case
+`risk_score` is a placeholder and must not be displayed as a real risk.
+
+The internal AI Engine (`POST /analyze`) requires the `X-Internal-Service-Key`
+header; it is not exposed to agents.
+
+Errors: 401 invalid, missing, inactive or expired API key; 404 policy or
+operation not found (or owned by another agent); 422 malformed payload.
+
+No transaction execution, signature or on-chain verification is implemented by
+these endpoints.

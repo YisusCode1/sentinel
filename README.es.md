@@ -30,7 +30,7 @@ Sentinel combina reglas de seguridad deterministas con análisis de riesgo consu
 2. **Aislamiento de políticas:** cada agente solo puede acceder a las políticas que le pertenecen.
 3. **Policy Engine determinista:** las operaciones se evalúan según políticas activas, límites de gasto, tokens permitidos, destinatarios y tipos de operación.
 4. **Análisis de riesgo con IA:** las operaciones aprobadas por el Policy Engine se envían al AI Engine para un análisis adicional.
-5. **Persistencia y auditoría:** el backend almacena los datos de la operación y la decisión determinista. El registro actual no persiste el análisis completo de Gemini.
+5. **Persistencia y auditoría:** el backend almacena los datos de la operación y la decisión determinista. El registro de la operación también persiste el análisis consultivo de Gemini (`ai_analysis`); si el proveedor no está disponible, guarda un fallback `unknown`.
 
 El AI Engine tiene únicamente una función consultiva. No puede aprobar, rechazar, autorizar ni ejecutar operaciones. El Policy Engine determinista sigue siendo la única autoridad para tomar decisiones sobre las políticas.
 
