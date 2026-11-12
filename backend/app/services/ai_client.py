@@ -4,7 +4,6 @@ import os
 import httpx
 
 from app.schemas.operation import AIAnalysisResponse
-from app.schemas.assistant import AssistantRequest, AssistantResponse
 
 
 AI_ENGINE_URL = os.getenv(
@@ -14,7 +13,7 @@ AI_ENGINE_URL = os.getenv(
 
 INTERNAL_SERVICE_KEY = os.getenv("INTERNAL_SERVICE_KEY")
 
-AI_ENGINE_TIMEOUT = float(os.getenv("AI_ENGINE_TIMEOUT_SECONDS", "40"))
+AI_ENGINE_TIMEOUT = 20.0
 
 
 def unavailable_analysis(error: Exception) -> AIAnalysisResponse:
@@ -41,7 +40,7 @@ def unavailable_analysis(error: Exception) -> AIAnalysisResponse:
     )
 
 
-def analyze_with_ai(operation, policy, agent_id: str, history_context: dict | None = None) -> AIAnalysisResponse:
+def analyze_with_ai(operation, policy, agent_id: str) -> AIAnalysisResponse:
     """
     Calls the internal AI Engine.
 
@@ -65,7 +64,6 @@ def analyze_with_ai(operation, policy, agent_id: str, history_context: dict | No
         "policy_max_amount": str(policy.max_amount),
         "allowed_tokens": policy.allowed_tokens,
         "allowed_recipients": policy.allowed_recipients,
-        **(history_context or {}),
     }
 
     try:
@@ -85,24 +83,3 @@ def analyze_with_ai(operation, policy, agent_id: str, history_context: dict | No
     except Exception as error:
         # AI failures must never prevent deterministic evaluation.
         return unavailable_analysis(error)
-
-
-def chat_with_ai(request: AssistantRequest, context: dict) -> AssistantResponse:
-    try:
-        if not INTERNAL_SERVICE_KEY:
-            raise RuntimeError("Internal service key missing")
-        response = httpx.post(
-            f"{AI_ENGINE_URL.rstrip('/')}/assistant/chat",
-            json={"message": request.message,
-                  "history": [item.model_dump() for item in request.history],
-                  "context": context},
-            headers={"X-Internal-Service-Key": INTERNAL_SERVICE_KEY},
-            timeout=AI_ENGINE_TIMEOUT,
-        )
-        response.raise_for_status()
-        return AssistantResponse.model_validate(response.json())
-    except (httpx.HTTPError, ValueError, RuntimeError):
-        return AssistantResponse(
-            reply="El motor de IA no está disponible. Las decisiones guardadas del motor de políticas siguen vigentes. Inténtalo de nuevo.",
-            mode="unavailable", warnings=["ai_engine_unavailable"],
-        )

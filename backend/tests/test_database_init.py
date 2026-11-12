@@ -14,7 +14,7 @@ def test_empty_database_bootstrap_and_repeat(tmp_path, monkeypatch):
     init_db.main()
     assert "ai_analysis" in {column["name"] for column in inspect(engine).get_columns("operations")}
     with engine.connect() as db:
-        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "20261111_ai_analysis"
+        assert db.scalar(text("SELECT version_num FROM alembic_version")) == "80a1574d3cd6"
     engine.dispose()
 
 
@@ -23,6 +23,7 @@ def test_upgrade_adds_nullable_analysis_and_preserves_records(tmp_path, monkeypa
     engine = create_engine(url)
     Base.metadata.create_all(engine)
     with engine.begin() as db:
+        db.execute(text("DROP INDEX ix_operations_agent_created"))
         db.execute(text("ALTER TABLE operations DROP COLUMN ai_analysis"))
         db.execute(text("INSERT INTO agents (id, name, active, created_at) VALUES ('retained', 'Existing agent', 1, CURRENT_TIMESTAMP)"))
     monkeypatch.setenv("DATABASE_URL", url)

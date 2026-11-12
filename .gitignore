@@ -28,3 +28,8 @@ broadcast/
 # Local test artifacts
 .pytest_cache/
 .test-tmp*/
+backups/
+*.bak
+*.phase1-backup
+.pytest_cache/
+__pycache__/

@@ -6,8 +6,8 @@ services:
     environment:
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
-      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.5-flash-lite}
-      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-30}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.5-flash}
+      GEMINI_TIMEOUT_SECONDS: ${GEMINI_TIMEOUT_SECONDS:-15}
       AI_DEMO_FALLBACK: ${AI_DEMO_FALLBACK:-true}
       INTERNAL_SERVICE_KEY: ${INTERNAL_SERVICE_KEY:?Copy .env.example to .env and configure INTERNAL_SERVICE_KEY}
     healthcheck:

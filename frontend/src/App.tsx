@@ -1,130 +1,180 @@
-import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
-import { api } from './api';
-import type { Analysis, ChatMessage, ChatReply, Operation, Policy } from './api';
+import { useEffect, useState } from 'react';
+import AppLayout from './components/layout/AppLayout';
+import GlassContainer from './components/ui/GlassContainer';
+import { useToast } from './components/ui/ToastProvider';
+import type { Tab } from './components/layout/navigation';
+import Dashboard from './features/dashboard/Dashboard';
+import OperationsPage from './features/operations/OperationsPage';
+import PoliciesPage from './features/policies/PoliciesPage';
+import AlertsPage from './features/alerts/AlertsPage';
+import ConfigPage from './features/config/ConfigPage';
+import ReportsPage from './features/reports/ReportsPage';
+import { API_BASE_URL, apiRequest } from './lib/api';
+import type { OperationRecord, PolicyRecord } from './features/operations/types';
 import './App.css';
 
-function Risk({ analysis }: { analysis: Analysis | null }) {
-  if (!analysis) return <p className="muted">Sin análisis guardado.</p>;
-  return <div className="risk">
-    <div className="row"><strong>Riesgo {analysis.risk_score}/100 · {analysis.risk_level}</strong>
-      <span className="tag">{analysis.analysis_available ? 'LLM' : analysis.model_used === 'deterministic-demo-v1' ? 'Demostración' : 'IA no disponible'}</span></div>
-    <meter min={0} max={100} low={40} high={70} optimum={0} value={analysis.risk_score} aria-label="Puntaje de riesgo" />
-    <p>{analysis.explanation}</p>
-    <div className="tags">{analysis.flags.map(flag => <span className="tag" key={flag}>{flag}</span>)}</div>
-    {analysis.evidence.length > 0 && <details><summary>Evidencias</summary><ul>{analysis.evidence.map((item, i) => <li key={i}>{item}</li>)}</ul></details>}
-  </div>;
-}
+export default function App() {
+  const notify = useToast();
+  const [backendStatus, setBackendStatus] = useState("checking");
+  const [checkedAt, setCheckedAt] = useState<Date | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("dashboard");
 
-function App() {
-  const [status, setStatus] = useState('Conectando…');
-  const [keyInput, setKeyInput] = useState('');
-  const [key, setKey] = useState('');
-  const [policies, setPolicies] = useState<Policy[]>([]);
-  const [operations, setOperations] = useState<Operation[]>([]);
-  const [policyId, setPolicyId] = useState('');
-  const [selected, setSelected] = useState('');
-  const [amount, setAmount] = useState('40');
-  const [token, setToken] = useState('USDC');
-  const [recipient, setRecipient] = useState('demo-recipient');
-  const [operationType, setOperationType] = useState('transfer');
-  const [messages, setMessages] = useState<(ChatMessage & { result?: ChatReply })[]>([]);
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [chatBusy, setChatBusy] = useState(false);
-  const [error, setError] = useState('');
-  const [chatError, setChatError] = useState('');
-  const chatEnd = useRef<HTMLDivElement>(null);
-  useEffect(() => { api<{ status: string }>('/health').then(data => setStatus(data.status)).catch(() => setStatus('Desconectado')); }, []);
-  useEffect(() => { chatEnd.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages, chatBusy]);
+  // Synchronization between features
+  const [alertsCountState, setAlertsCountState] = useState<{
+    count: number | null;
+    loading: boolean;
+    error: boolean;
+  }>({ count: null, loading: true, error: false });
+  const [alertsRefreshSignal, setAlertsRefreshSignal] = useState(0);
+  const [policyRefreshSignal, setPolicyRefreshSignal] = useState(0);
+  const [preselectedPolicyId, setPreselectedPolicyId] = useState<string | null>(null);
 
-  async function refresh(apiKey: string) {
-    const [p, o] = await Promise.all([api<Policy[]>('/policies', apiKey), api<Operation[]>('/operations', apiKey)]);
-    setPolicies(p); setOperations(o);
-    return p;
-  }
-  async function connect(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError('');
-    try {
-      const candidate = keyInput.trim();
-      const p = await refresh(candidate);
-      setKey(candidate); setPolicyId(p[0]?.id || ''); setMessages([]); setSelected(''); setChatError('');
-    } catch (err) { setError(String(err)); }
-    finally { setBusy(false); }
-  }
-  async function demoPolicy() {
-    setBusy(true); setError('');
-    try {
-      const p = await api<Policy>('/policies', key, { name: 'Política demo USDC', max_amount: '100', allowed_tokens: ['USDC'], allowed_recipients: ['demo-recipient'], allowed_operations: ['transfer'] });
-      await refresh(key); setPolicyId(p.id); setToken('USDC'); setRecipient('demo-recipient'); setOperationType('transfer');
-    } catch (err) { setError(String(err)); }
-    finally { setBusy(false); }
-  }
-  async function evaluate(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError('');
-    try {
-      const result = await api<{ operation_id: string }>('/operations/evaluate', key, { policy_id: policyId, network: 'near-testnet', operation: operationType, token, amount, recipient });
-      setSelected(result.operation_id); await refresh(key);
-    } catch (err) { setError(String(err)); }
-    finally { setBusy(false); }
-  }
-  async function send(event: FormEvent) {
-    event.preventDefault(); if (!message.trim() || chatBusy) return;
-    const content = message.trim(); setChatBusy(true); setChatError('');
-    try {
-      const result = await api<ChatReply>('/assistant/chat', key, { message: content, operation_id: selected || null,
-        history: messages.slice(-12).map(({ role, content: text }) => ({ role, content: text.slice(0, 2000) })) });
-      setMessages(previous => [...previous, { role: 'user', content }, { role: 'assistant', content: result.reply, result }]); setMessage('');
-    } catch (err) { setChatError(String(err)); }
-    finally { setChatBusy(false); }
-  }
-  return <main>
-    <header><div><p className="eyebrow">CONTROL DE AGENTES · NEAR TESTNET</p><h1>SENTINEL<span> / IA</span></h1></div><span className="tag">Backend: {status}</span></header>
-    <p className="intro">Evalúa operaciones, inspecciona riesgos y consulta tus políticas.</p>
-    <form className="connection row" onSubmit={connect}>
-      <label>API key del agente<input type="password" autoComplete="off" placeholder="Clave generada por la CLI" value={keyInput} onChange={e => setKeyInput(e.target.value)} required /></label>
-      <button disabled={busy || chatBusy}>{key ? 'Cambiar agente' : 'Conectar agente'}</button>
-      <small>La clave permanece solo en memoria.</small>
-    </form>
-    {error && <p role="alert" className="error">{error}</p>}
-    <div className="workspace">
-      <section className="operations">
-        <div className="row"><h2>Operaciones</h2><button className="secondary" disabled={!key || busy} onClick={demoPolicy}>Crear política demo</button></div>
-        <p className="muted">La política demo permite transferir hasta 100 USDC a demo-recipient.</p>
-        <form onSubmit={evaluate} className="operation-form">
-          <label className="wide">Política<select required value={policyId} onChange={e => setPolicyId(e.target.value)}><option value="">Selecciona una política</option>{policies.map(p => <option key={p.id} value={p.id}>{p.name} · límite {p.max_amount}{p.active ? '' : ' · inactiva'}</option>)}</select></label>
-          <label>Monto<input required inputMode="decimal" value={amount} onChange={e => setAmount(e.target.value)} pattern="[0-9]+([.][0-9]+)?" /></label>
-          <label>Token<input required value={token} onChange={e => setToken(e.target.value)} /></label>
-          <label>Destinatario<input required value={recipient} onChange={e => setRecipient(e.target.value)} /></label>
-          <label>Operación<input required value={operationType} onChange={e => setOperationType(e.target.value)} /></label>
-          <button className="wide" disabled={!key || !policyId || busy}>{busy ? 'Procesando…' : 'Evaluar operación'}</button>
-        </form>
-        <div className="row"><h2>Historial</h2><span className="muted">{operations.length} operaciones</span></div>
-        {!operations.length && <p className="empty">Conecta tu agente y evalúa una operación. Prueba 40 USDC y después 150 USDC.</p>}
-        <div className="history">{operations.map(op => <article key={op.id} className={selected === op.id ? 'selected' : ''}>
-          <div className="row"><strong>{op.amount} {op.token}</strong><span className={`tag ${op.decision}`}>{op.decision === 'approved' ? 'Permitida por política' : 'Rechazada por política'}</span></div>
-          <p>{op.reason}</p><small>{op.recipient} · {new Date(op.created_at).toLocaleString()}</small>
-          <Risk analysis={op.ai_analysis} />
-          <button className="secondary" disabled={chatBusy} onClick={() => { setSelected(op.id); setMessage('Explica la decisión y los riesgos de esta operación.'); }}>Consultar en el asistente</button>
-        </article>)}</div>
-      </section>
-      <aside className="assistant">
-        <div className="row"><h2>Asistente de IA</h2><span className="tag">Solo consulta</span></div>
-        <p className="muted">Usa tus operaciones recientes y políticas activas. Las sugerencias no modifican reglas.</p>
-        <label>Contexto<select disabled={chatBusy} value={selected} onChange={e => setSelected(e.target.value)}><option value="">Resumen del agente</option>{operations.map(op => <option key={op.id} value={op.id}>{op.amount} {op.token} · {op.id.slice(0, 8)}</option>)}</select></label>
-        <div className="chat" role="log" aria-live="polite" aria-label="Conversación con el asistente">
-          {!messages.length && <div className="empty"><strong>Comprende cada decisión</strong><p>Pregunta por qué se rechazó una operación, audita los riesgos o solicita propuestas de políticas.</p></div>}
-          {messages.map((item, i) => <div key={i} className={`bubble ${item.role}`}><small>{item.role === 'user' ? 'Tú' : `Sentinel · ${item.result?.mode === 'demo' ? 'Demostración sin LLM' : item.result?.mode === 'unavailable' ? 'No disponible' : 'LLM'}`}</small><p>{item.content}</p>
-            {!!item.result?.suggested_rules.length && <><strong>Propuestas para revisión</strong><ul>{item.result.suggested_rules.map((rule, n) => <li key={n}>{rule}</li>)}</ul></>}
-            {!!item.result?.warnings.length && <p className="warnings">{item.result.warnings.join(' · ')}</p>}
-          </div>)}
-          {chatBusy && <p role="status">Consultando el contexto…</p>}<div ref={chatEnd} />
-        </div>
-        {chatError && <p role="alert" className="error">{chatError}</p>}
-        <form onSubmit={send}><label>Tu consulta<textarea value={message} onChange={e => setMessage(e.target.value)} maxLength={2000} required placeholder="¿Qué riesgos ves y qué reglas sugieres?" /></label><button disabled={!key || chatBusy || !message.trim()}>{chatBusy ? 'Consultando…' : 'Enviar consulta'}</button></form>
-      </aside>
+  const isOnline = backendStatus === "healthy";
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10000);
+    let active = true;
+    fetch(`${API_BASE_URL}/api/v1/health`, { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("Health check failed");
+        return response.json();
+      })
+      .then((data) => { if (active) setBackendStatus(data.status); })
+      .catch(() => { if (active) setBackendStatus("disconnected"); })
+      .finally(() => {
+        window.clearTimeout(timeout);
+        if (active) setCheckedAt(new Date());
+      });
+    return () => { active = false; controller.abort(); window.clearTimeout(timeout); };
+  }, []);
+
+  // Update navigation alerts count: query GET /operations?decision=rejected&limit=100
+  useEffect(() => {
+    const controller = new AbortController();
+    apiRequest<OperationRecord[]>("/operations?decision=rejected&limit=100", {
+      signal: controller.signal,
+    })
+      .then((data) => {
+        setAlertsCountState({ count: Array.isArray(data) ? data.length : 0, loading: false, error: false });
+      })
+      .catch((_err) => {
+        if (!controller.signal.aborted) {
+          setAlertsCountState((prev) => ({ ...prev, loading: false, error: true }));
+        }
+      });
+    return () => controller.abort();
+  }, [alertsRefreshSignal, backendStatus]);
+
+  const handleNavClick = (tab: Tab) => {
+    setActiveTab(tab);
+  };
+
+  const handleEvaluateWithPolicy = (policyId: string) => {
+    setPreselectedPolicyId(policyId);
+    setActiveTab("operaciones");
+  };
+
+  const handleNavigateToPolicy = (_policyId: string) => {
+    setActiveTab("policies");
+  };
+
+  const handleOperationEvaluated = (record: OperationRecord) => {
+    setAlertsRefreshSignal((s) => s + 1);
+    notify({ title: record.decision === 'approved' ? 'Evaluación aprobada por política' : 'Evaluación rechazada por política', description: record.reason, tone: record.decision === 'approved' ? 'success' : 'warning', key: `evaluation-${record.operation_id}` });
+  };
+
+  const handlePolicyCreated = (policy: PolicyRecord) => {
+    setPolicyRefreshSignal((s) => s + 1);
+    notify({ title: 'Política creada', description: policy.name, tone: 'success', key: `policy-${policy.id}` });
+  };
+
+  return (
+    <div className="relative min-h-screen bg-[#05070D] text-[#FAFAFA] overflow-x-hidden selection:bg-cyan-500/20 selection:text-cyan-200">
+      {/* Luces de iluminación ambiental fijas en el fondo */}
+      <div className="fixed inset-0 pointer-events-none overflow-hidden z-0" aria-hidden="true">
+        {/* Fondo con degradado sutil de negro carbón puro a gris profundo */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#030508] via-[#070B14] to-[#020306]" />
+
+        {/* Orbe 1: Cian Neón Tecnológico (Superior Derecha) */}
+        <div
+          className="absolute -top-36 -right-36 w-[680px] h-[680px] rounded-full pointer-events-none opacity-50 mix-blend-screen"
+          style={{
+            background: 'radial-gradient(circle, rgba(34, 211, 238, 0.22) 0%, rgba(6, 182, 212, 0.08) 42%, transparent 70%)',
+            filter: 'blur(90px)',
+          }}
+        />
+
+        {/* Orbe 2: Púrpura Web3 Accent (Centro / Lateral Izquierdo) */}
+        <div
+          className="absolute top-1/3 -left-40 w-[620px] h-[620px] rounded-full pointer-events-none opacity-45 mix-blend-screen"
+          style={{
+            background: 'radial-gradient(circle, rgba(168, 85, 247, 0.20) 0%, rgba(126, 34, 206, 0.06) 45%, transparent 70%)',
+            filter: 'blur(95px)',
+          }}
+        />
+
+        {/* Orbe 3: Azul Zafiro Institucional (Inferior Derecha) */}
+        <div
+          className="absolute -bottom-28 right-1/4 w-[540px] h-[540px] rounded-full pointer-events-none opacity-35 mix-blend-screen"
+          style={{
+            background: 'radial-gradient(circle, rgba(56, 189, 248, 0.16) 0%, rgba(30, 58, 138, 0.05) 50%, transparent 70%)',
+            filter: 'blur(85px)',
+          }}
+        />
+      </div>
+
+      {/* Capa de aplicación interactiva sobre las luces ambientales */}
+      <div className="relative z-10 min-h-screen">
+        <AppLayout
+          activeTab={activeTab}
+          onNavigate={handleNavClick}
+          backendStatus={backendStatus}
+          checkedAt={checkedAt}
+          alerts={alertsCountState}
+        >
+          {/* Contenedor Wet Glass principal que refracta la iluminación ambiental */}
+          <GlassContainer
+            as="div"
+            intensity="medium"
+            className="p-5 sm:p-7 lg:p-8"
+          >
+            {activeTab === 'dashboard' && <Dashboard backendStatus={backendStatus} onNavigate={handleNavClick} />}
+            <OperationsPage
+              active={activeTab === "operaciones"}
+              preselectedPolicyId={preselectedPolicyId}
+              onClearPreselectedPolicy={() => setPreselectedPolicyId(null)}
+              onOperationEvaluated={handleOperationEvaluated}
+              onPolicyCreated={handlePolicyCreated}
+              onNavigateToPolicy={handleNavigateToPolicy}
+              policyRefreshSignal={policyRefreshSignal}
+            />
+
+            <PoliciesPage
+              active={activeTab === "policies"}
+              onEvaluateWithPolicy={handleEvaluateWithPolicy}
+              onPolicyCreatedNotification={handlePolicyCreated}
+              refreshSignal={policyRefreshSignal}
+            />
+
+            <AlertsPage
+              active={activeTab === "alerts"}
+              onNavigateToPolicy={handleNavigateToPolicy}
+              refreshSignal={alertsRefreshSignal}
+            />
+
+            <ConfigPage
+              active={activeTab === "configuracion"}
+              backendOnline={isOnline}
+            />
+
+            <ReportsPage
+              active={activeTab === "reportes"}
+              onNavigate={handleNavClick}
+            />
+          </GlassContainer>
+        </AppLayout>
+      </div>
     </div>
-    <footer>La IA es consultiva. El motor de políticas determina la decisión; esta interfaz no ejecuta ni verifica transacciones en blockchain.</footer>
-  </main>;
+  );
 }
-export default App;

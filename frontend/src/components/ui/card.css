@@ -1,0 +1,24 @@
+.ui-card { position: relative; isolation: isolate; min-width: 0; padding: 24px; border: 1px solid var(--color-border); border-radius: var(--radius-panel); background: var(--color-surface-elevated); box-shadow: var(--glass-highlight); }
+.ui-card--interactive { transition: border-color var(--duration-normal) var(--ease-ui), box-shadow var(--duration-normal) var(--ease-ui); }
+.ui-card-light, .ui-card-edge { position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0; transition: opacity var(--duration-normal) var(--ease-ui); }
+.ui-card-light { z-index: -1; }
+.ui-card-edge { display: none; }
+/* Mask only the decorative overlay; never clip content or focus outlines. */
+@supports ((mask-composite: exclude) or (-webkit-mask-composite: xor)) {
+  .ui-card-edge { display: block; inset: -1px; z-index: 1; padding: 1px; -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+}
+@media (hover: hover) and (pointer: fine) {
+  .ui-card--interactive:hover { border-color: rgb(34 211 238 / 0.32); box-shadow: var(--glass-highlight), 0 8px 32px rgb(0 0 0 / 0.18); }
+  .ui-card--interactive:hover > .ui-card-light { opacity: 0.055; }
+  .ui-card--interactive:hover > .ui-card-edge { opacity: 0.65; }
+}
+.ui-card--interactive:focus-within { border-color: var(--color-brand); box-shadow: var(--shadow-glow-brand); }
+@media (prefers-reduced-motion: reduce), (forced-colors: active) {
+  .ui-card-light, .ui-card-edge { display: none; }
+}
+@media (forced-colors: active) {
+  .ui-card--interactive:focus-within { outline: 1px solid Highlight; }
+}
+@media (max-width: 600px) {
+  .ui-card { padding: 20px 16px; }
+}

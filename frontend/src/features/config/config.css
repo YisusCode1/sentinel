@@ -1,0 +1,95 @@
+.config-page[hidden] {
+  display: none;
+}
+
+.config-page {
+  animation: fadeIn 150ms ease-in-out;
+}
+
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.config-item-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.config-item-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--borde-sutil);
+  font-size: 0.85rem;
+}
+
+.config-item-list li:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.config-item-label {
+  color: var(--texto-secundario);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.config-item-value {
+  color: var(--texto-principal);
+  font-size: 14px;
+}
+
+.config-item-list .ops-field-help {
+  color: var(--texto-secundario);
+  font-size: 13px;
+  line-height: 1.5;
+  margin-top: 3px;
+}
+
+.config-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  width: fit-content;
+}
+
+.config-status-badge.active {
+  background: #15382e;
+  color: #6ee7b7;
+  border: 1px solid #2e6652;
+}
+
+.config-status-badge.inactive {
+  background: #1e293b;
+  color: var(--texto-secundario);
+  border: 1px solid #334155;
+}
+
+@media (max-width: 900px) {
+  .config-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .config-grid {
+    gap: 16px;
+    margin-top: 16px;
+  }
+  .config-item-list li {
+    padding: 11px 0;
+  }
+  .config-item-value {
+    font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+}

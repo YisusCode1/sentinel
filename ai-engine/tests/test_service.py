@@ -13,7 +13,7 @@ from analyzer import OperationAnalysisRequest, RiskAnalysisResponse, analyze_ope
 from analyzer import service
 from analyzer.config import AIEngineSettings
 from analyzer.prompts import SYSTEM_INSTRUCTION
-from analyzer.schemas import GeminiProviderSchema
+from analyzer.schemas import GeminiStructuredOutput
 
 
 @pytest.fixture(autouse=True)
@@ -79,7 +79,7 @@ def test_success_and_provider_configuration(request_data, as_model):
     assert call["model"] == "gemini-2.5-flash"
     assert call["config"].system_instruction == SYSTEM_INSTRUCTION
     assert call["config"].response_mime_type == "application/json"
-    assert call["config"].response_schema is GeminiProviderSchema
+    assert call["config"].response_json_schema == GeminiStructuredOutput.model_json_schema()
     assert call["config"].temperature == 0.1
     assert '"recipient": "demo-recipient"' in call["contents"]
     client.close.assert_not_called()
@@ -231,6 +231,7 @@ def test_owned_client_timeout_and_cleanup(fail, monkeypatch, request_data):
     assert result.analysis_available is not fail
     assert factory.call_args.kwargs["api_key"] == "unit-test-key"
     assert factory.call_args.kwargs["http_options"].timeout == 5000
+    assert factory.call_args.kwargs["http_options"].api_version == "v1beta"
     client.close.assert_called_once_with()
 
 

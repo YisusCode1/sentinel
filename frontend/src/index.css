@@ -1,9 +1,265 @@
-:root { font-family: Inter, system-ui, sans-serif; color: #e4edf5; background: #0b1119; font-synthesis: none; line-height: 1.5; }
-* { box-sizing: border-box; }
-body { margin: 0; }
-button, input, select, textarea { font: inherit; }
-button { cursor: pointer; }
-button:disabled { opacity: .45; cursor: not-allowed; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 2px solid #6ee7c1; outline-offset: 3px; }
-h1, h2, p { margin: 0; }
-h2 { font-size: 1.15rem; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Resolve palette tokens from the shared Tailwind theme at build time. */
+    --color-background: theme('colors.background');
+    --color-surface: theme('colors.surface.DEFAULT');
+    --color-surface-elevated: theme('colors.surface.elevated');
+    --color-border: theme('colors.border.DEFAULT');
+    --color-border-strong: theme('colors.border.strong');
+    --color-text: theme('colors.foreground.DEFAULT');
+    --color-text-muted: theme('colors.foreground.muted');
+    --color-brand: theme('colors.brand.DEFAULT');
+    --color-brand-hover: theme('colors.brand.hover');
+    --color-brand-subtle: theme('colors.brand.subtle');
+    --color-on-brand: theme('colors.brand.foreground');
+    --color-accent: theme('colors.accent.DEFAULT');
+    --color-on-accent: theme('colors.accent.foreground');
+    --color-success: theme('colors.success');
+    --color-warning: theme('colors.warning');
+    --color-danger: theme('colors.danger');
+
+    --font-ui: theme('fontFamily.sans');
+    --font-mono: theme('fontFamily.mono');
+    --radius-sm: 0.5rem;
+    --radius-panel: theme('borderRadius.panel');
+    --shadow-panel: theme('boxShadow.panel');
+    --shadow-glow-brand: theme('boxShadow.glow-brand');
+    --shadow-glow-accent: theme('boxShadow.glow-accent');
+    --glass-background: rgb(17 17 19 / 0.78);
+    --glass-background-strong: rgb(24 24 27 / 0.9);
+    --glass-border: rgb(255 255 255 / 0.1);
+    --glass-highlight: inset 0 1px 0 rgb(255 255 255 / 0.04);
+    --glass-blur: 20px;
+    --duration-fast: 160ms;
+    --duration-normal: 240ms;
+    --ease-ui: cubic-bezier(0.22, 1, 0.36, 1);
+
+    /* Compatibility aliases for the existing feature styles. */
+    --bg-principal: var(--color-background);
+    --bg-sidebar: var(--color-surface);
+    --bg-tarjetas: var(--color-surface-elevated);
+    --borde-sutil: var(--color-border);
+    --azul-marca: var(--color-brand);
+    --azul-texto: var(--color-brand-hover);
+    --verde-operativo: var(--color-success);
+    --rojo-critico: var(--color-danger);
+    --amarillo-alerta: var(--color-warning);
+    --texto-principal: var(--color-text);
+    --texto-secundario: var(--color-text-muted);
+    --radio-panel: var(--radius-panel);
+
+    font-family: var(--font-ui);
+    font-size: 87.5%;
+    line-height: 1.5;
+    font-weight: 400;
+    color: var(--color-text);
+    background-color: var(--color-background);
+    color-scheme: dark;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+  body { margin: 0; min-width: 320px; }
+  #root { min-height: 100vh; min-height: 100svh; }
+  h1, h2, h3, p { margin: 0; }
+  h1, h2, h3, strong { font-weight: 600; }
+  button, input, select, textarea { font: inherit; }
+  button { cursor: pointer; }
+  button, input, select, textarea { -webkit-tap-highlight-color: transparent; }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-hover);
+    outline-offset: 4px;
+  }
+  button:disabled { cursor: not-allowed; opacity: 0.6; }
+  button[aria-busy='true'] { cursor: progress; }
+  svg { flex-shrink: 0; }
+  ::selection { background: var(--color-brand-subtle); color: var(--color-text); }
+
+  /* Keep input text readable without triggering iOS focus zoom. */
+  @media (max-width: 768px) {
+    input, select, textarea { font-size: max(1rem, 16px) !important; }
+  }
+}
+
+/* Outside @layer so effects are available before components adopt them. */
+.glass,
+.glass-strong {
+  background-color: var(--color-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-panel);
+  box-shadow: var(--glass-highlight), var(--shadow-panel);
+}
+
+.glass-strong { background-color: var(--color-surface-elevated); }
+
+/* Solid backgrounds are the fallback when backdrop blur is unavailable. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass,
+  .glass-strong {
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+    backdrop-filter: blur(var(--glass-blur)) saturate(120%);
+  }
+  .glass { background-color: var(--glass-background); }
+  .glass-strong { background-color: var(--glass-background-strong); }
+}
+
+/* ==========================================================================
+   WET GLASSMORPHISM UTILITIES (Enterprise / Web3)
+   ========================================================================== */
+
+:root {
+  --glass-wet-blur-panel: 24px;
+  --glass-wet-blur-card: 16px;
+  --glass-wet-blur-intense: 32px;
+}
+
+/* Fallback styles for environments without backdrop-filter */
+.glass-panel,
+.glass-card,
+.glass-wet-effect {
+  position: relative;
+  border-radius: var(--radius-panel);
+  transition: all var(--duration-normal) var(--ease-ui);
+}
+
+.glass-panel {
+  background-color: rgb(15 23 42 / 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.12),
+    0 20px 48px -12px rgba(0, 0, 0, 0.5);
+}
+
+.glass-card {
+  background-color: rgb(24 24 27 / 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    0 12px 32px -8px rgba(0, 0, 0, 0.45);
+}
+
+.glass-wet-effect {
+  background-color: rgb(11 17 32 / 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 20px 0 rgba(255, 255, 255, 0.02),
+    0 24px 56px -12px rgba(0, 0, 0, 0.7);
+}
+
+/* Advanced Wet Glass with deep translucency, specular highlights, and intense blur */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.005) 50%,
+      rgba(0, 0, 0, 0.25) 100%
+    ), rgba(11, 17, 32, 0.45);
+    -webkit-backdrop-filter: blur(var(--glass-wet-blur-panel)) saturate(170%);
+    backdrop-filter: blur(var(--glass-wet-blur-panel)) saturate(170%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+      0 20px 48px -12px rgba(0, 0, 0, 0.55);
+  }
+
+  .glass-card {
+    background: linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.06) 0%,
+      rgba(255, 255, 255, 0.015) 100%
+    ), rgba(17, 24, 39, 0.55);
+    -webkit-backdrop-filter: blur(var(--glass-wet-blur-card)) saturate(160%);
+    backdrop-filter: blur(var(--glass-wet-blur-card)) saturate(160%);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.16),
+      0 12px 32px -8px rgba(0, 0, 0, 0.45);
+  }
+
+  .glass-wet-effect {
+    background: linear-gradient(
+      140deg,
+      rgba(255, 255, 255, 0.08) 0%,
+      rgba(255, 255, 255, 0.02) 40%,
+      rgba(0, 0, 0, 0.28) 100%
+    ), rgba(10, 16, 30, 0.4);
+    -webkit-backdrop-filter: blur(var(--glass-wet-blur-intense)) saturate(190%) contrast(105%);
+    backdrop-filter: blur(var(--glass-wet-blur-intense)) saturate(190%) contrast(105%);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    box-shadow:
+      inset 0 1px 1px 0 rgba(255, 255, 255, 0.24),
+      inset 0 0 16px 0 rgba(255, 255, 255, 0.02),
+      0 28px 64px -14px rgba(0, 0, 0, 0.72);
+  }
+}
+
+.glow-brand { box-shadow: var(--glass-highlight), var(--shadow-glow-brand); }
+.glow-accent { box-shadow: var(--glass-highlight), var(--shadow-glow-accent); }
+
+.glow-interactive {
+  transition: border-color var(--duration-fast) var(--ease-ui),
+    box-shadow var(--duration-normal) var(--ease-ui);
+}
+
+.glow-interactive:focus-visible,
+.glow-interactive[data-active='true'] {
+  border-color: var(--color-brand);
+  box-shadow: var(--glass-highlight), var(--shadow-glow-brand);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .glow-interactive:hover:not(:disabled):not([aria-disabled='true']) {
+    border-color: var(--color-brand);
+    box-shadow: var(--glass-highlight), var(--shadow-glow-brand);
+  }
+}
+
+/* Tabular digits keep technical values aligned while they update. */
+.numeric, .contract-address, time, code, pre, input[inputmode='decimal'] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+.contract-address { overflow-wrap: anywhere; }
+
+.ops-table-scroll,
+.policies-table-container,
+.policy-detail-card,
+.policy-recipients-list,
+.sidebar {
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .glass, .glass-strong, .glass-panel, .glass-card, .glass-wet-effect {
+    background-color: var(--color-surface-elevated);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+@media (forced-colors: active) {
+  .glass, .glass-strong, .glass-panel, .glass-card, .glass-wet-effect {
+    background-color: Canvas;
+    border-color: CanvasText;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :focus-visible { outline-color: Highlight; }
+}

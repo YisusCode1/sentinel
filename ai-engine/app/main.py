@@ -1,8 +1,8 @@
 from fastapi import Depends, FastAPI, Header, HTTPException
 import hmac
 from analyzer.config import get_settings
-from analyzer.service import analyze_for_api, assistant_chat
-from analyzer.schemas import OperationAnalysisRequest, RiskAnalysisResponse, AssistantRequest, AssistantResponse
+from app.analyzer import analyze_risk
+from app.schemas import RiskAnalysisRequest, RiskAnalysisResponse
 
 
 app = FastAPI(
@@ -19,7 +19,7 @@ def verify_internal_service_key(
 ):
     settings = get_settings()
 
-    if settings.INTERNAL_SERVICE_KEY is None or not settings.INTERNAL_SERVICE_KEY.get_secret_value().strip():
+    if settings.INTERNAL_SERVICE_KEY is None:
         raise HTTPException(
             status_code=503,
             detail="AI Engine internal authentication is not configured",
@@ -34,8 +34,8 @@ def verify_internal_service_key(
     expected_key = settings.INTERNAL_SERVICE_KEY.get_secret_value()
 
     if not hmac.compare_digest(
-        x_internal_service_key.encode("utf-8"),
-        expected_key.encode("utf-8"),
+        x_internal_service_key,
+        expected_key,
     ):
         raise HTTPException(
             status_code=401,
@@ -49,12 +49,10 @@ def health():
 
     return {
         "service": "sentinel-ai-engine",
-        "status": "healthy" if settings.INTERNAL_SERVICE_KEY and settings.INTERNAL_SERVICE_KEY.get_secret_value().strip() else "misconfigured",
-        "mode": "gemini" if settings.provider_key else "demo" if settings.AI_DEMO_FALLBACK else "unavailable",
+        "status": "healthy",
+        "mode": "gemini",
         "model": settings.GEMINI_MODEL,
-        "configured": bool(settings.provider_key),
-        "provider_verified": False,
-        "fallback_enabled": settings.AI_DEMO_FALLBACK,
+        "configured": settings.GEMINI_API_KEY is not None,
     }
 
 
@@ -65,14 +63,5 @@ def health():
         Depends(verify_internal_service_key)
     ],
 )
-async def analyze(request: OperationAnalysisRequest):
-    return await analyze_for_api(request)
-
-
-@app.post("/assistant/chat", response_model=AssistantResponse,
-          dependencies=[Depends(verify_internal_service_key)])
-async def chat(request: AssistantRequest):
-    import json
-    if len(json.dumps(request.context.model_dump(mode="json"))) > 100_000:
-        raise HTTPException(status_code=413, detail="Assistant context is too large")
-    return await assistant_chat(request)
+async def analyze(request: RiskAnalysisRequest):
+    return await analyze_risk(request)

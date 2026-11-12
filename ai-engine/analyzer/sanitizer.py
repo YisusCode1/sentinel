@@ -25,12 +25,6 @@ def sanitize_operation_input(
     The flag is advisory: it does not prove an attack or prevent every injection.
     Original request data is preserved for backend policy decisions.
     """
-    return sanitize_payload(request.model_dump(mode="json"))
-
-
-def sanitize_payload(payload: dict[str, Any], text_limit: int = 300,
-                     trusted_keys: frozenset[str] = frozenset()) -> tuple[dict[str, Any], bool]:
-    """Shared boundary for operation data, chat history and database context."""
     pre_detected_injection = False
 
     def sanitize_text(value: str, limit: int) -> str:
@@ -53,7 +47,7 @@ def sanitize_payload(payload: dict[str, Any], text_limit: int = 300,
             return [sanitize_value(item, limit) for item in value]
         if isinstance(value, dict):
             return {
-                (key if key in trusted_keys else sanitize_text(key, _STANDARD_TEXT_LIMIT)): sanitize_value(item, limit)
+                sanitize_text(key, _STANDARD_TEXT_LIMIT): sanitize_value(item, limit)
                 for key, item in value.items()
             }
         return value
@@ -61,9 +55,9 @@ def sanitize_payload(payload: dict[str, Any], text_limit: int = 300,
     sanitized = {
         field: sanitize_value(
             value,
-            text_limit if field == "metadata" else _STANDARD_TEXT_LIMIT,
+            _METADATA_TEXT_LIMIT if field == "metadata" else _STANDARD_TEXT_LIMIT,
         )
-        for field, value in payload.items()
+        for field, value in request.model_dump(mode="json").items()
     }
     return sanitized, pre_detected_injection
 
