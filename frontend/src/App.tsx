@@ -11,6 +11,7 @@ import ConfigPage from './features/config/ConfigPage';
 import ReportsPage from './features/reports/ReportsPage';
 import { API_BASE_URL, apiRequest } from './lib/api';
 import type { OperationRecord, PolicyRecord } from './features/operations/types';
+import { resolveLocale, translations, type Locale } from './i18n';
 import './App.css';
 
 export default function App() {
@@ -18,6 +19,12 @@ export default function App() {
   const [backendStatus, setBackendStatus] = useState("checking");
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("dashboard");
+  const [locale, setLocale] = useState<Locale>(() => {
+    if (typeof window === 'undefined') return 'es';
+    const storedLocale = window.localStorage.getItem('sentinel-locale');
+    return resolveLocale(storedLocale);
+  });
+  const localeStrings = translations[locale];
 
   // Synchronization between features
   const [alertsCountState, setAlertsCountState] = useState<{
@@ -30,6 +37,12 @@ export default function App() {
   const [preselectedPolicyId, setPreselectedPolicyId] = useState<string | null>(null);
 
   const isOnline = backendStatus === "healthy";
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('sentinel-locale', locale);
+    }
+  }, [locale]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -81,12 +94,17 @@ export default function App() {
 
   const handleOperationEvaluated = (record: OperationRecord) => {
     setAlertsRefreshSignal((s) => s + 1);
-    notify({ title: record.decision === 'approved' ? 'Evaluación aprobada por política' : 'Evaluación rechazada por política', description: record.reason, tone: record.decision === 'approved' ? 'success' : 'warning', key: `evaluation-${record.operation_id}` });
+    notify({
+      title: record.decision === 'approved' ? localeStrings.toasts.evaluationApproved : localeStrings.toasts.evaluationRejected,
+      description: record.reason,
+      tone: record.decision === 'approved' ? 'success' : 'warning',
+      key: `evaluation-${record.operation_id}`,
+    });
   };
 
   const handlePolicyCreated = (policy: PolicyRecord) => {
     setPolicyRefreshSignal((s) => s + 1);
-    notify({ title: 'Política creada', description: policy.name, tone: 'success', key: `policy-${policy.id}` });
+    notify({ title: localeStrings.toasts.policyCreated, description: policy.name, tone: 'success', key: `policy-${policy.id}` });
   };
 
   return (
@@ -132,6 +150,8 @@ export default function App() {
           backendStatus={backendStatus}
           checkedAt={checkedAt}
           alerts={alertsCountState}
+          locale={locale}
+          onLocaleChange={setLocale}
         >
           {/* Contenedor Wet Glass principal que refracta la iluminación ambiental */}
           <GlassContainer
@@ -139,7 +159,7 @@ export default function App() {
             intensity="medium"
             className="p-5 sm:p-7 lg:p-8"
           >
-            {activeTab === 'dashboard' && <Dashboard backendStatus={backendStatus} onNavigate={handleNavClick} />}
+            {activeTab === 'dashboard' && <Dashboard backendStatus={backendStatus} onNavigate={handleNavClick} locale={locale} />}
             <OperationsPage
               active={activeTab === "operaciones"}
               preselectedPolicyId={preselectedPolicyId}
@@ -166,6 +186,8 @@ export default function App() {
             <ConfigPage
               active={activeTab === "configuracion"}
               backendOnline={isOnline}
+              locale={locale}
+              onLocaleChange={setLocale}
             />
 
             <ReportsPage

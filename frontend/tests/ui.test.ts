@@ -11,6 +11,7 @@ let Card: typeof Button;
 let TableSkeleton: typeof Button;
 let ResultSkeleton: typeof Button;
 let OperationResult: typeof Button;
+let ConfigPage: typeof Button;
 let ToastProvider: typeof Button;
 let Modal: typeof Button;
 
@@ -22,6 +23,7 @@ before(async () => {
   ({ default: Card } = await server.ssrLoadModule('/src/components/ui/Card.tsx'));
   ({ TableSkeleton, ResultSkeleton } = await server.ssrLoadModule('/src/components/ui/Skeleton.tsx'));
   ({ default: OperationResult } = await server.ssrLoadModule('/src/features/operations/OperationResult.tsx'));
+  ({ default: ConfigPage } = await server.ssrLoadModule('/src/features/config/ConfigPage.tsx'));
   ({ ToastProvider } = await server.ssrLoadModule('/src/components/ui/ToastProvider.tsx'));
   ({ default: Modal } = await server.ssrLoadModule('/src/components/ui/Modal.tsx'));
 });
@@ -93,6 +95,15 @@ test('Unavailable AI analysis hides numeric risk score in result detail', () => 
   ));
   assert.match(html, /Análisis de riesgo IA no disponible/);
   assert.doesNotMatch(html, /50\/100|50\/100 score/i);
+});
+
+test('Config page renders a locale selector in the chosen language', () => {
+  const html = renderToStaticMarkup(createElement(ToastProvider, null,
+    createElement(ConfigPage, { active: true, backendOnline: true, locale: 'en', onLocaleChange: () => {} }),
+  ));
+  assert.match(html, /System configuration/i);
+  assert.match(html, /Language/i);
+  assert.match(html, /value="en"/);
 });
 
 test('Policy dialog has a labelled native focus boundary; notifications have a stable live region', () => {
