@@ -1,18 +1,22 @@
 import { useState } from "react";
-import { Check, Database, Info, Key, Server, Settings, ShieldCheck, Trash2 } from "lucide-react";
+import { Check, Database, Globe, Info, Key, Server, Settings, ShieldCheck, Trash2 } from "lucide-react";
 import CollapsibleBanner from "../../components/ui/CollapsibleBanner";
 import Button from "../../components/ui/Button";
 import { API_BASE_URL, hasApiKey, setApiKey } from "../../lib/api";
 import { useToast } from "../../components/ui/ToastProvider";
+import { localeOptions, translations, type Locale } from "../../i18n";
 import "./config.css";
 
 interface Props {
   active: boolean;
   backendOnline: boolean;
+  locale: Locale;
+  onLocaleChange: (locale: Locale) => void;
 }
 
-export default function ConfigPage({ active, backendOnline }: Props) {
+export default function ConfigPage({ active, backendOnline, locale, onLocaleChange }: Props) {
   const notify = useToast();
+  const t = translations[locale].config;
   const [keyInput, setKeyInput] = useState("");
   const [isKeyConfigured, setIsKeyConfigured] = useState(hasApiKey());
   const [showKey, setShowKey] = useState(false);
@@ -21,15 +25,15 @@ export default function ConfigPage({ active, backendOnline }: Props) {
     e.preventDefault();
     const cleanKey = keyInput.trim();
     if (!cleanKey) {
-      notify({ title: "Clave vacía", description: "Por favor ingresa una API Key válida.", tone: "error" });
+      notify({ title: t.emptyKey, description: t.invalidKey, tone: "error" });
       return;
     }
     setApiKey(cleanKey);
     setIsKeyConfigured(true);
     setKeyInput("");
     notify({
-      title: "API Key guardada en memoria",
-      description: "La autenticación se enviará mediante la cabecera X-API-Key durante esta sesión.",
+      title: t.keySaved,
+      description: t.keySavedDesc,
       tone: "success",
     });
   }
@@ -39,8 +43,8 @@ export default function ConfigPage({ active, backendOnline }: Props) {
     setIsKeyConfigured(false);
     setKeyInput("");
     notify({
-      title: "API Key eliminada de memoria",
-      description: "Las peticiones ya no incluirán cabecera X-API-Key.",
+      title: t.keyRemoved,
+      description: t.keyRemovedDesc,
       tone: "info",
     });
   }
@@ -48,19 +52,43 @@ export default function ConfigPage({ active, backendOnline }: Props) {
   return (
     <div className="config-page" hidden={!active}>
       <div className="section-heading">
-        <h2>Configuración del sistema</h2>
-        <span className="demo-label">Parámetros operativos · Sentinel Seguro v3.0</span>
+        <h2>{t.systemSettings}</h2>
+        <span className="demo-label">{t.subtitle}</span>
+      </div>
+
+      <div className="card ops-span-full mb-6">
+        <div className="card-header-row">
+          <h3>
+            <Globe size={18} aria-hidden="true" />
+            {t.language}
+          </h3>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-sm text-slate-300" htmlFor="sentinel-language-select">{t.language}</label>
+          <select
+            id="sentinel-language-select"
+            value={locale}
+            onChange={(event) => onLocaleChange(event.target.value as Locale)}
+            className="contract-address px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200 min-w-[180px]"
+            aria-label={t.language}
+          >
+            {localeOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+          <span className="ops-field-help text-xs text-slate-400">{t.languageHelp}</span>
+        </div>
       </div>
 
       <CollapsibleBanner
         id="config-environment-info"
-        title="Arquitectura de seguridad y credenciales"
+        title={t.securityTitle}
         tone="info"
         icon={<Info size={18} className="banner-main-icon" aria-hidden="true" />}
         ariaLabel="Aviso de configuración"
       >
         <p>
-          Sentinel utiliza autenticación estricta mediante cabecera <code>X-API-Key</code>. Las credenciales jamás se almacenan en almacenamiento persistente (localStorage o bundle del navegador), garantizando cero exposición.
+          {t.securityText}
         </p>
       </CollapsibleBanner>
 
@@ -70,24 +98,23 @@ export default function ConfigPage({ active, backendOnline }: Props) {
           <div className="card-header-row">
             <h3 id="auth-config-heading">
               <Key size={18} aria-hidden="true" />
-              Autenticación de sesión (X-API-Key)
+              {t.sessionTitle}
             </h3>
             <span className={`config-status-badge ${isKeyConfigured ? "active" : "inactive"}`}>
               <span className={`dot ${isKeyConfigured ? "online" : "offline"}`} aria-hidden="true" />
-              {isKeyConfigured ? "Clave activa en memoria" : "Sin clave configurada"}
+              {isKeyConfigured ? t.sessionStateActive : t.sessionStateInactive}
             </span>
           </div>
 
           <p className="text-sm text-slate-300 mb-4">
-            Ingresa la API Key de tu agente para autenticar las operaciones y consultas ante el backend.
-            La clave permanece exclusivamente en la memoria volátil de esta sesión.
+            {t.sessionText}
           </p>
 
           <form onSubmit={handleSaveKey} className="space-y-3">
             <div className="flex gap-2 items-center flex-wrap">
               <input
                 type={showKey ? "text" : "password"}
-                placeholder={isKeyConfigured ? "••••••••••••••••••••••••••••••••" : "Ingresa tu X-API-Key"}
+                placeholder={isKeyConfigured ? "••••••••••••••••••••••••••••••••" : t.placeholder}
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
                 className="contract-address px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-slate-200 flex-1 min-w-[280px]"
@@ -99,21 +126,21 @@ export default function ConfigPage({ active, backendOnline }: Props) {
                 type="button"
                 onClick={() => setShowKey(!showKey)}
               >
-                {showKey ? "Ocultar" : "Mostrar"}
+                {showKey ? t.hide : t.show}
               </Button>
               <Button variant="primary" type="submit">
                 <Check size={16} />
-                Guardar en sesión
+                {t.save}
               </Button>
               {isKeyConfigured && (
                 <Button variant="secondary" type="button" onClick={handleClearKey}>
                   <Trash2 size={16} />
-                  Eliminar clave
+                  {t.clear}
                 </Button>
               )}
             </div>
             <p className="ops-field-help text-xs text-slate-400">
-              Cero persistencia en disco: la clave se descartará automáticamente al cerrar la pestaña o recargar el navegador.
+              {t.persistenceNote}
             </p>
           </form>
         </section>

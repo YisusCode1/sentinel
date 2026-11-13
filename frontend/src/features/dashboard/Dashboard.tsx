@@ -10,6 +10,8 @@ import { apiRequest } from '../../lib/api';
 import type { OperationRecord, PolicyRecord } from '../operations/types';
 import { displayDate } from '../operations/utils';
 import { NearExplorerLink } from '../operations/OperationResult';
+import type { Locale } from '../../i18n';
+import { translations } from '../../i18n';
 
 interface MetricItem {
   title: string;
@@ -34,10 +36,11 @@ function MetricCard({ title, value, description, tone, icon: Icon }: MetricItem)
   );
 }
 
-export default function Dashboard({ backendStatus, onNavigate }: { backendStatus: string; onNavigate: (tab: Tab) => void }) {
+export default function Dashboard({ backendStatus, onNavigate, locale }: { backendStatus: string; onNavigate: (tab: Tab) => void; locale: Locale }) {
   const reduceMotion = useReducedMotion();
   const isOnline = backendStatus === 'healthy';
-  const connectionClass = connectionInfo(backendStatus).tone;
+  const connectionClass = connectionInfo(backendStatus, locale).tone;
+  const strings = translations[locale].dashboard;
 
   const [operations, setOperations] = useState<OperationRecord[] | null>(null);
   const [policies, setPolicies] = useState<PolicyRecord[] | null>(null);
@@ -177,7 +180,7 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
     {
       title: 'Políticas Registradas',
       value: activePols !== null ? activePols.toLocaleString('en-US') : (loading ? '…' : '—'),
-      description: activePols !== null ? 'Reglas autoritativas activas' : 'Información no disponible',
+      description: activePols !== null ? (locale === 'en' ? 'Authoritative rules active' : locale === 'pt' ? 'Regras autoritativas ativas' : 'Reglas autoritativas activas') : (locale === 'en' ? 'Information unavailable' : locale === 'pt' ? 'Informação indisponível' : 'Información no disponible'),
       tone: 'neutral',
       icon: Key,
     },
@@ -194,13 +197,13 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
       {/* 2. Indicadores clave de supervisión (KPIs) */}
       <div className="section-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
         <div>
-          <h2 id="metrics-heading">Indicadores clave de supervisión (KPIs)</h2>
-          <span className="demo-label">Datos en tiempo real · Servidor Sentinel</span>
+          <h2 id="metrics-heading">{strings.heading}</h2>
+          <span className="demo-label">{strings.subheading}</span>
         </div>
         {isOnline && totalOps === 0 && (
-          <Button variant="secondary" onClick={populateDemoTelemetry} loading={populating} loadingLabel="Poblando telemetría…">
+          <Button variant="secondary" onClick={populateDemoTelemetry} loading={populating} loadingLabel={strings.loading}>
             <Sparkles size={14} className="text-cyan-400" />
-            Cargar telemetría demo para jurado
+            {strings.populate}
           </Button>
         )}
       </div>
@@ -211,14 +214,14 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
       <div className="grid-split">
         <Card className="card" aria-labelledby="activity-heading">
           <div className="chart-header-flex">
-            <h3 id="activity-heading">Actividad reciente</h3>
-            <span className="demo-label">Registro de operaciones persistidas</span>
+            <h3 id="activity-heading">{strings.activity}</h3>
+            <span className="demo-label">{strings.activityLabel}</span>
           </div>
           {operations && operations.length > 0 ? (
             <div>
               <div className="chart-legend">
-                <span><i className="legend-line" />Total ({operations.length})</span>
-                <span><i className="legend-line risk" />Rechazos ({recentRejected.length})</span>
+                <span><i className="legend-line" />{strings.totalOperations} ({operations.length})</span>
+                <span><i className="legend-line risk" />{strings.rejectedOperations} ({recentRejected.length})</span>
               </div>
               <div className="chart-wrapper">
                 <svg className="svg-chart" viewBox="0 0 500 120" preserveAspectRatio="none" role="img" aria-label="Línea de evaluaciones">
@@ -228,7 +231,7 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
                 </svg>
               </div>
               <div className="chart-axis-labels numeric text-xs text-slate-400 mt-2">
-                <span>Últimas operaciones procesadas</span>
+                <span>{strings.chartFooter}</span>
                 <span>UTC</span>
               </div>
             </div>
@@ -236,11 +239,11 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
             <div className="ops-empty py-8 text-center">
               <Activity size={24} className="mx-auto mb-2 text-slate-500" />
               <p className="text-sm text-slate-400">
-                {isOnline ? 'Aún no hay operaciones evaluadas en la base de datos.' : 'Información no disponible. Backend desconectado.'}
+                {isOnline ? strings.noOperations : strings.noOperationsOffline}
               </p>
               {isOnline && (
                 <button type="button" className="link-text text-xs mt-2" onClick={populateDemoTelemetry} disabled={populating}>
-                  <Sparkles size={13} /> Cargar telemetría demo (1 clic)
+                  <Sparkles size={13} /> {strings.loadDemo}
                 </button>
               )}
             </div>
@@ -248,30 +251,30 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
         </Card>
 
         <Card className="card" aria-labelledby="system-heading">
-          <div className="card-header-row"><h3 id="system-heading">Estado del sistema</h3><Activity size={17} aria-hidden="true" /></div>
+          <div className="card-header-row"><h3 id="system-heading">{strings.systemStatus}</h3><Activity size={17} aria-hidden="true" /></div>
           <div className="availability">
             <div>
-              <p className="numeric">{isOnline ? 'Operativo' : 'Inactivo'}</p>
-              <p className="availability-label">Estado de infraestructura</p>
+              <p className="numeric">{isOnline ? strings.operationStatus : strings.inactiveStatus}</p>
+              <p className="availability-label">{strings.infrastructureStatus}</p>
             </div>
             <span className={`badge-pill ${isOnline ? 'succ' : 'warn'}`}>{isOnline ? 'En línea' : 'Desconectado'}</span>
           </div>
           <ul className="service-list">
             <li>
-              <span>Backend FastAPI</span>
+              <span>{strings.backendStatus}</span>
               <strong className={connectionClass}>{isOnline ? 'Conectado' : backendStatus === 'checking' ? 'Verificando' : 'Sin conexión'}</strong>
             </li>
             <li>
-              <span>Policy Engine</span>
-              <strong className="text-cyan-400">Autoritativo (Activo)</strong>
+              <span>{strings.policyStatus}</span>
+              <strong className="text-cyan-400">{strings.policyActive}</strong>
             </li>
             <li>
-              <span>Gemini AI Engine</span>
-              <strong className="text-cyan-400">Asesor de Riesgo</strong>
+              <span>{strings.aiStatus}</span>
+              <strong className="text-cyan-400">{strings.aiAdvisor}</strong>
             </li>
             <li>
-              <span>Autenticación</span>
-              <strong className="text-slate-300">X-API-Key</strong>
+              <span>{strings.authStatus}</span>
+              <strong className="text-slate-300">{strings.xApiKey}</strong>
             </li>
           </ul>
         </Card>
@@ -280,10 +283,10 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
       <div className="grid-split">
         <Card className="card" aria-labelledby="policies-heading">
           <div className="card-header-row">
-            <h3 id="policies-heading"><Lock size={17} aria-hidden="true" />Políticas de seguridad</h3>
-            <button className="link-text" onClick={() => onNavigate('policies')}>Ver todas →</button>
+            <h3 id="policies-heading"><Lock size={17} aria-hidden="true" />{strings.policiesHeading}</h3>
+            <button className="link-text" onClick={() => onNavigate('policies')}>{strings.viewAll} →</button>
           </div>
-          <p className="demo-label">Reglas persistidas en el servidor</p>
+          <p className="demo-label">{strings.policiesSubtitle}</p>
           {displayPolicies.length > 0 ? (
             <ul className="policy-list-mini">
               {displayPolicies.map((p) => (
@@ -294,18 +297,18 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
                       Límite: <strong className="numeric">{p.max_amount}</strong> · {p.allowed_tokens.join(', ')}
                     </small>
                   </div>
-                  <span className="badge-pill succ">Activa</span>
+                  <span className="badge-pill succ">{strings.activeBadge}</span>
                 </li>
               ))}
             </ul>
           ) : (
             <div className="ops-empty py-6 text-center">
               <p className="text-sm text-slate-400">
-                {isOnline ? 'No hay políticas configuradas en la base de datos.' : 'Información no disponible.'}
+                {isOnline ? strings.policyEmpty : strings.backendDisconnected}
               </p>
               {isOnline && (
                 <button type="button" className="link-text text-xs mt-2" onClick={() => onNavigate('policies')}>
-                  + Crear primera política
+                  {strings.createFirstPolicy}
                 </button>
               )}
             </div>
@@ -314,15 +317,15 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
 
         <Card className="card" aria-labelledby="alerts-heading">
           <div className="card-header-row">
-            <h3 id="alerts-heading"><AlertTriangle size={17} aria-hidden="true" />Últimas alertas</h3>
-            <button className="link-text" onClick={() => onNavigate('alerts')}>Ver todas →</button>
+            <h3 id="alerts-heading"><AlertTriangle size={17} aria-hidden="true" />{strings.alertsHeading}</h3>
+            <button className="link-text" onClick={() => onNavigate('alerts')}>{strings.viewAll} →</button>
           </div>
           {recentRejected.length > 0 ? (
             recentRejected.map((alert) => (
               <div className="alert-item critical" key={alert.id || alert.operation_id}>
                 <div className="alert-row">
                   <p><strong>{alert.reason}</strong></p>
-                  <span className="badge-pill crit">Rechazada</span>
+                  <span className="badge-pill crit">{strings.alertBadge}</span>
                 </div>
                 <small style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                   <span>{displayDate(alert.created_at)}</span>
@@ -334,7 +337,7 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
                     <>
                       <span>·</span>
                       <span className="badge-pill warn" style={{ fontSize: '0.68rem', padding: '1px 5px' }}>
-                        Riesgo IA: {alert.ai_analysis.risk_score}/100
+                        {strings.riskAi}: {alert.ai_analysis.risk_score}/100
                       </span>
                     </>
                   )}
@@ -344,7 +347,7 @@ export default function Dashboard({ backendStatus, onNavigate }: { backendStatus
           ) : (
             <div className="ops-empty py-6 text-center">
               <p className="text-sm text-slate-400">
-                {isOnline ? 'No hay alertas por rechazo registradas.' : 'Información no disponible.'}
+                {isOnline ? strings.alertEmpty : strings.backendDisconnected}
               </p>
             </div>
           )}

@@ -39,6 +39,24 @@
 .shell-topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 72px; padding: 12px 36px; border-bottom: 1px solid var(--color-border); background: var(--color-background); }
 .shell-breadcrumb { display: flex; align-items: center; gap: 12px; font-size: 13px; }
 .shell-breadcrumb > svg, .shell-workspace-name { color: var(--color-text-muted); }
+.shell-topbar-actions { display: flex; align-items: center; gap: 12px; }
+.shell-language-toggle { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border: 1px solid var(--color-border); border-radius: 999px; background: rgb(15 23 42 / 0.55); }
+.shell-language-toggle select {
+  appearance: none;
+  border: 0;
+  background: #0b1724;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  padding-right: 10px;
+}
+.shell-language-toggle select option {
+  background: #0b1724;
+  color: var(--color-text);
+}
+.shell-language-toggle select:focus { outline: none; }
 .shell-connection { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--color-text-muted); }
 .shell-main { max-width: 1600px; margin-inline: auto; padding: 32px 36px 20px; }
 .shell-main:focus { outline-offset: -4px; }

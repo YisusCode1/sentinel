@@ -1,8 +1,10 @@
 import { PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
 import { motion, useReducedMotion } from 'framer-motion';
 import sentinelLogo from '../../assets/sentinel-logo.png';
-import { connectionInfo, navigation } from './navigation';
+import { connectionInfo, getNavigation } from './navigation';
 import type { AlertsCount, Tab } from './navigation';
+import type { Locale } from '../../i18n';
+import { translations } from '../../i18n';
 
 interface Props {
   activeTab: Tab;
@@ -13,22 +15,30 @@ interface Props {
   backendStatus: string;
   checkedAt: Date | null;
   alerts: AlertsCount;
+  locale: Locale;
 }
 
-export default function Sidebar({ activeTab, onNavigate, collapsed = false, onToggle, onClose, backendStatus, checkedAt, alerts }: Props) {
+export default function Sidebar({ activeTab, onNavigate, collapsed = false, onToggle, onClose, backendStatus, checkedAt, alerts, locale }: Props) {
   const reduceMotion = useReducedMotion();
-  const connection = connectionInfo(backendStatus);
-  const alertDescription = alerts.error ? 'Error al consultar alertas' : alerts.loading && alerts.count === null ? 'Consultando alertas' : `${alerts.count ?? 0} evaluaciones rechazadas`;
+  const navigation = getNavigation(locale);
+  const connection = connectionInfo(backendStatus, locale);
+  const strings = translations[locale].global;
+  const localeFormat = locale === 'en' ? 'en-US' : locale === 'pt' ? 'pt-BR' : 'es-PE';
+  const alertDescription = alerts.error
+    ? strings.alertError
+    : alerts.loading && alerts.count === null
+      ? strings.alertLoading
+      : strings.alertSummary.replace('{count}', String(alerts.count ?? 0));
 
   return (
     <motion.div className="shell-sidebar-content" initial={reduceMotion ? false : { opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.35 }}>
       <div className="shell-brand">
         <img src={sentinelLogo} alt="" width={36} height={36} />
-        <div className="shell-brand-copy"><strong>sentinel<span>.</span></strong><small>Blockchain Intelligence</small></div>
-        {collapsed && <span className="sr-only">Sentinel</span>}
-        {onClose && <button className="shell-icon-button" type="button" onClick={onClose} aria-label="Cerrar navegación" autoFocus><X size={18} aria-hidden="true" /></button>}
+        <div className="shell-brand-copy"><strong>sentinel<span>.</span></strong><small>{strings.backendBrand}</small></div>
+        {collapsed && <span className="sr-only">{strings.sentinel}</span>}
+        {onClose && <button className="shell-icon-button" type="button" onClick={onClose} aria-label={strings.closeNav} autoFocus><X size={18} aria-hidden="true" /></button>}
       </div>
-      <div className="shell-nav-heading"><span>WORKSPACE</span><span className="shell-nav-line" /></div>
+      <div className="shell-nav-heading"><span>{strings.statusWorkSpace}</span><span className="shell-nav-line" /></div>
       <nav className="shell-nav" aria-label="Navegación principal">
         {navigation.map(({ id, label, icon: Icon }) => (
           <button key={id} type="button" className={`shell-nav-link ${activeTab === id ? 'is-active' : ''}`}
@@ -43,11 +53,11 @@ export default function Sidebar({ activeTab, onNavigate, collapsed = false, onTo
       <div className="shell-sidebar-bottom">
         <div className="shell-service" title={collapsed ? connection.label : undefined}>
           <span className={`dot ${connection.tone}`} aria-hidden="true" />
-          <div className="shell-service-copy"><p>{connection.label}</p>{checkedAt && <small>Última comprobación<br /><time dateTime={checkedAt.toISOString()}>{new Intl.DateTimeFormat('es-PE', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' }).format(checkedAt)} · Lima</time></small>}</div>
+          <div className="shell-service-copy"><p>{connection.label}</p>{checkedAt && <small>{strings.lastCheck}<br /><time dateTime={checkedAt.toISOString()}>{new Intl.DateTimeFormat(localeFormat, { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' }).format(checkedAt)} · Lima</time></small>}</div>
           {collapsed && <span className="sr-only">{connection.label}</span>}
         </div>
-        {onToggle && <button type="button" className="shell-collapse" onClick={onToggle} aria-expanded={!collapsed} aria-controls="desktop-navigation" aria-label={collapsed ? 'Expandir navegación' : 'Contraer navegación'} title={collapsed ? 'Expandir navegación' : undefined}>
-          {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}<span>Contraer panel</span>
+        {onToggle && <button type="button" className="shell-collapse" onClick={onToggle} aria-expanded={!collapsed} aria-controls="desktop-navigation" aria-label={collapsed ? strings.expandPanel : strings.minimizePanel} title={collapsed ? strings.expandPanel : undefined}>
+          {collapsed ? <PanelLeftOpen size={18} aria-hidden="true" /> : <PanelLeftClose size={18} aria-hidden="true" />}<span>{strings.collapsePanel}</span>
         </button>}
       </div>
     </motion.div>
