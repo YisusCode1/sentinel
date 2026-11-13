@@ -4,7 +4,22 @@
 
 ---
 
-## 🚀 Arquitectura del Sistema
+## � Auditoría del Frontend
+
+El frontend está construido con React, TypeScript y Vite. La auditoría de calidad y cumplimiento exige cubrir los siguientes puntos:
+
+1. Mejorar la gestión de sesiones y credenciales para evitar errores de contexto y evitar exposición de claves.
+2. Incorporar una vista de agentes y su estado para supervisar actividad, salud y permisos.
+3. Mostrar claramente el estado de análisis de IA: pendiente, completado o no disponible.
+4. Añadir filtros y trazabilidad de operaciones para inspeccionar decisiones y resultados históricos.
+5. Diferenciar visualmente las decisiones deterministas del Policy Engine frente a las recomendaciones consultivas de Gemini.
+6. Soporte obligatorio de idioma en inglés, español y portugués para el panel de usuario y mensajes del sistema.
+
+> El sistema debe permitir que la interfaz se ejecute en inglés, español y portugués sin perder funcionalidad ni coherencia operativa.
+
+---
+
+## �🚀 Arquitectura del Sistema
 
 El ecosistema Sentinel está compuesto por 4 servicios desacoplados y contenerizados:
 
